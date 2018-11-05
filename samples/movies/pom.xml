@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.amazonaws.services.dynamodb.diagnostics.demo</groupId>
+    <artifactId>dynamodb-key-diagnostics-library-demo</artifactId>
+    <version>1.0</version>
+    <name>Example for the DynamoDB Key Diagnostics Library</name>
+    <description>Simple application that creates unbalanced load to DynamoDB</description>
+    <url>https://aws.amazon.com/dynamodb/</url>
+
+    <scm>
+        <url>https://github.com/awslabs/dynamodb-key-diagnostics-library.git</url>
+        <tag>1.0</tag>
+    </scm>
+
+    <developers>
+        <developer>
+            <name>Mostafa Elhemali</name>
+            <email>mostafa.elhemaly@gmail.com</email>
+            <url>https://www.linkedin.com/in/mostafa-elhemali/</url>
+        </developer>
+        <developer>
+            <name>Ryan Chan</name>
+            <email>ryanwmchan@gmail.com</email>
+            <url>https://www.linkedin.com/in/ryanwmchan/</url>
+        </developer>
+        <developer>
+            <name>Alexander Patrikalakis</name>
+            <email>amcpatrikalakis@gmail.com</email>
+            <url>https://www.linkedin.com/in/amcpatrix/</url>
+        </developer>
+    </developers>
+
+    <licenses>
+        <license>
+            <name>The Apache Software License, Version 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <dynamodb-key-diagnostics-library.version>1.0</dynamodb-key-diagnostics-library.version>
+        <aws-java-sdk.version>1.11.400</aws-java-sdk.version>
+        <amazon-kinesis-client.version>1.9.2</amazon-kinesis-client.version>
+        <commons-lang3.version>3.3.2</commons-lang3.version>
+        <commons-logging.version>1.2</commons-logging.version>
+        <commons-math3.version>3.2</commons-math3.version>
+        <exec-maven-plugin.version>1.2.1</exec-maven-plugin.version>
+        <findbugs.maven.plugin.version>3.0.5</findbugs.maven.plugin.version>
+        <google-collections.version>1.0-rc2</google-collections.version>
+        <gson.version>2.8.5</gson.version>
+        <guava.version>26.0-jre</guava.version>
+        <jackson-databind.version>2.6.7.1</jackson-databind.version>
+        <java.jdk.version>1.8</java.jdk.version>
+        <jersey.version>2.26</jersey.version>
+        <lombok.version>1.16.16</lombok.version>
+        <maven-checkstyle-plugin.version>3.0.0</maven-checkstyle-plugin.version>
+        <maven-compiler-plugin.version>3.6.2</maven-compiler-plugin.version>
+        <maven.enforcer.plugin.version>3.0.0-M2</maven.enforcer.plugin.version>
+        <slf4j-api.version>1.7.25</slf4j-api.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.amazonaws.services.dynamodb.diagnostics</groupId>
+            <artifactId>dynamodb-key-diagnostics-library</artifactId>
+            <version>${dynamodb-key-diagnostics-library.version}</version>
+        </dependency>
+
+        <!-- The AWS SDK for Java -->
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-java-sdk-dynamodb</artifactId>
+            <version>${aws-java-sdk.version}</version>
+            <exclusions>
+                <exclusion>
+                    <artifactId>commons-logging</artifactId>
+                    <groupId>commons-logging</groupId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-java-sdk-kinesis</artifactId>
+            <version>${aws-java-sdk.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-math3</artifactId>
+            <version>${commons-math3.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j-api.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson-databind.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>commons-logging</groupId>
+            <artifactId>commons-logging</artifactId>
+            <version>${commons-logging.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>${commons-lang3.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>${guava.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.collections</groupId>
+            <artifactId>google-collections</artifactId>
+            <version>${google-collections.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>${gson.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>${lombok.version}</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>${exec-maven-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>movies</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>com.amazonaws.services.dynamodb.diagnostics.demo.MovieApplication</mainClass>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>findbugs-maven-plugin</artifactId>
+                <version>${findbugs.maven.plugin.version}</version>
+                <configuration>
+                    <effort>Max</effort>
+                    <threshold>Low</threshold>
+                    <xmlOutput>true</xmlOutput>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>${maven-checkstyle-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>validate</id>
+                        <phase>validate</phase>
+                        <configuration>
+                            <configLocation>checkstyle.xml</configLocation>
+                            <encoding>UTF-8</encoding>
+                            <consoleOutput>true</consoleOutput>
+                            <failsOnError>true</failsOnError>
+                        </configuration>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>${maven.enforcer.plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>enforce</id>
+                        <configuration>
+                            <rules>
+                                <dependencyConvergence/>
+                            </rules>
+                        </configuration>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>${maven-compiler-plugin.version}</version>
+                <configuration>
+                    <source>${java.jdk.version}</source>
+                    <target>${java.jdk.version}</target>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

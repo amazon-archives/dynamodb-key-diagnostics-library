@@ -1,0 +1,246 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: 'AWS::Serverless-2016-10-31'
+Parameters:
+  KinesisSourceStreamShardCount:
+    Type: Number
+    Default: 4
+    MinValue: 4
+    Description: The number of shards for the Kinesis source stream where the Key Diagnostics client writes to.
+  HotKeyLogsGroupName:
+    Type: String
+    Default: hot-keys-logs-group
+    Description: CloudWatch Logs Group name for storing hot key log streams.
+  HotKeyLogsStreamPrefix:
+    Type: String
+    Default: hot-keys-logs-stream
+    Description: CloudWatch Logs Stream name for recording hot key logs.
+Resources:
+  SourceStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      ShardCount:
+        Ref: KinesisSourceStreamShardCount
+  AggregatedResultBucket:
+    Type: AWS::S3::Bucket
+    Properties: {}
+  AnalyticKeyDiagnostics:
+    Type: AWS::KinesisAnalytics::Application
+    Properties:
+      ApplicationDescription: Kinesis Analytics Application for DynamoDB Key Diagnostics Library
+      Inputs:
+        - NamePrefix: SOURCE_DIAGNOSTICS_STREAM
+          InputSchema:
+            RecordColumns:
+              - Name: StartTime
+                SqlType: BIGINT
+                Mapping: $.start_time
+              - Name: EndTime
+                SqlType: BIGINT
+                Mapping: $.end_time
+              - Name: IO
+                SqlType: DOUBLE
+                Mapping: $.IO
+              - Name: Operation
+                SqlType: VARCHAR(16)
+                Mapping: $.Operation
+              - Name: TableName
+                SqlType: VARCHAR(255)
+                Mapping: $.Table
+              - Name: HashKey
+                SqlType: VARCHAR(255)
+                Mapping: '$.KeyValues[0:].name'
+              - Name: HashKeyValue
+                SqlType: VARCHAR(2048)
+                Mapping: '$.KeyValues[0:].value'
+            RecordFormat:
+              RecordFormatType: JSON
+              MappingParameters:
+                JSONMappingParameters:
+                  RecordRowPath: $
+          KinesisStreamsInput:
+            ResourceARN: !GetAtt SourceStream.Arn
+            RoleARN: !GetAtt KeyDiagnosticsRole.Arn
+      ApplicationCode: |
+        -- INTERMEDIATE_STREAM to convert start time and end time to TIMESTAMP
+        -- This isn't necessary, but we can reuse this INTERMEDIATE_STREAM for other analytics streams
+        CREATE OR REPLACE STREAM "INTERMEDIATE_STREAM" (
+          "StartTime" TIMESTAMP NOT NULL,
+          "EndTime" TIMESTAMP NOT NULL,
+          "TableName" VARCHAR(255) NOT NULL,
+          "Operation" VARCHAR(16) NOT NULL,
+          "IO" DOUBLE NOT NULL,
+          "HashKey" VARCHAR(255) NOT NULL,
+          "HashKeyValue" VARCHAR(2048) NOT NULL
+        );
+        -- Corresponding 'pump' to insert data into the INTERMEDIATE_STREAM
+        CREATE OR REPLACE PUMP "INPUT_PUMP" AS
+          INSERT INTO "INTERMEDIATE_STREAM"
+            SELECT STREAM
+              TO_TIMESTAMP("StartTime"),
+              TO_TIMESTAMP("EndTime"),
+              "TableName",
+              "Operation",
+              "IO",
+              "HashKey",
+              "HashKeyValue"
+        FROM "SOURCE_DIAGNOSTICS_STREAM_001"; -- This refers to the actual Kinesis Stream
+
+        -- SECOND_AGGREGATED_STREAM aggregates key records to per-second results
+        CREATE OR REPLACE STREAM "SECOND_AGGREGATED_STREAM" (
+          "Second" timestamp  NOT NULL,
+          "TableName" varchar(255) NOT NULL,
+          "HashKey" varchar(255) NOT NULL,
+          "HashKeyValue" varchar(2048) NOT NULL,
+          "Operation" varchar(16) NOT NULL,
+          "TotalIO" DOUBLE NOT NULL);
+        -- The corresponding pump to insert second-aggregated data from the INTERMEDIATE_STREAM
+        -- All columns are aggregated using the GROUP BY, and summed over the IO consumed during each second.
+        CREATE OR REPLACE PUMP "SECOND_PUMP" AS
+          INSERT INTO "SECOND_AGGREGATED_STREAM"
+            SELECT STREAM
+              FLOOR(Max("EndTime") TO SECOND),
+              "TableName",
+              "HashKey",
+              "HashKeyValue",
+              "Operation",
+              SUM("IO") as TotalIO
+            FROM "INTERMEDIATE_STREAM"
+            GROUP BY
+              FLOOR("INTERMEDIATE_STREAM".ROWTIME TO SECOND),
+              "TableName",
+              "HashKey",
+              "HashKeyValue",
+              "Operation";
+
+        -- MINUTE_AGGREGATED_STREAM aggregates key records to per-second results
+        CREATE OR REPLACE STREAM "MINUTE_AGGREGATED_STREAM" (
+          "Minute" timestamp NOT NULL,
+          "TableName" varchar(255) NOT NULL,
+          "HashKey" varchar(255) NOT NULL,
+          "HashKeyValue" varchar(2048) NOT NULL,
+          "Operation" varchar(16) NOT NULL,
+          "TotalIO" DOUBLE NOT NULL);
+        -- The corresponding pump to insert second-aggregated data from the INTERMEDIATE_STREAM
+        -- All columns are aggregated using the GROUP BY, and summed over the IO consumed during each second.
+        CREATE OR REPLACE PUMP "MINUTE_PUMP" AS
+          INSERT INTO "MINUTE_AGGREGATED_STREAM"
+            SELECT STREAM
+              MONOTONIC(FLOOR("Second" TO MINUTE)),
+              "TableName",
+              "HashKey",
+              "HashKeyValue",
+              "Operation",
+              SUM("TotalIO")
+            FROM "SECOND_AGGREGATED_STREAM"
+            GROUP BY MONOTONIC(FLOOR("Second" TO MINUTE)),
+              "TableName",
+              "HashKey",
+              "HashKeyValue",
+              "Operation";
+  HeatAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 1
+      MetricName: Breaching key total IO
+      Namespace: DynamoDBKeyDiagnosticsLibrary
+      Period: '21600'
+      Threshold: 500
+      Statistic: Maximum
+    DependsOn:
+      - HotKeyLoggerLambdaFunction
+  HotKeyLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Ref: HotKeyLogsGroupName
+
+  FirehoseS3:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      DeliveryStreamType: DirectPut
+      S3DestinationConfiguration:
+        BucketARN: !GetAtt AggregatedResultBucket.Arn
+        BufferingHints:
+          IntervalInSeconds: '60'
+          SizeInMBs: '20'
+        CompressionFormat: UNCOMPRESSED
+        Prefix: diagnostics/
+        RoleARN: !GetAtt KeyDiagnosticsRole.Arn
+  AnalyticOutput:
+    Type: AWS::KinesisAnalytics::ApplicationOutput
+    Properties:
+      ApplicationName: !Ref AnalyticKeyDiagnostics
+      Output:
+        Name: SECOND_AGGREGATED_STREAM
+        DestinationSchema:
+          RecordFormatType: JSON
+        KinesisFirehoseOutput:
+          ResourceARN: !GetAtt FirehoseS3.Arn
+          RoleARN: !GetAtt KeyDiagnosticsRole.Arn
+    DependsOn:
+      - AnalyticKeyDiagnostics
+  KeyDiagnosticsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - kinesisanalytics.amazonaws.com
+                - firehose.amazonaws.com
+                - lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: Open
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: '*'
+                Resource: '*'
+  KinesisOutputLambda:
+    Type: AWS::KinesisAnalytics::ApplicationOutput
+    Properties:
+      ApplicationName: !Ref AnalyticKeyDiagnostics
+      Output:
+        Name: MINUTE_AGGREGATED_STREAM
+        DestinationSchema:
+          RecordFormatType: JSON
+        LambdaOutput:
+          ResourceARN: !GetAtt HotKeyLoggerLambdaFunction.Arn
+          RoleARN: !GetAtt KeyDiagnosticsRole.Arn
+  HotKeyLoggerLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./resources/python/src/diagnostics/hot_key_logger_lambda.py
+      Handler: hot_key_logger_lambda.lambda_handler
+      Runtime: python2.7
+      Description: An AWS Lambda function that emits hot key metrics and logs the hot keys.
+      MemorySize: 128
+      Timeout: 30
+      Policies:
+        - CloudWatchPutMetricPolicy: {}
+      Environment:
+        Variables:
+          HOT_KEY_LOGS_GROUP_NAME:
+            Ref: HotKeyLogsGroupName
+          HOT_KEY_LOGS_STREAM_PREFIX:
+            Ref: HotKeyLogsStreamPrefix
+
+Outputs:
+  SourceStreamName:
+    Description: Name of the source data stream (Kinesis Data Stream).
+    Value: !Ref SourceStream
+  KinesisAnalyticAppName:
+    Description: Name of Kinesis Data Analytics Application.
+    Value: !Ref AnalyticKeyDiagnostics
+  S3BucketName:
+    Description: Name of S3 bucket for storing aggregated data from Kinesis Analytics.
+    Value: !Ref AggregatedResultBucket
+  HeatAlarmName:
+    Description: Name of AWS CloudWatch hot key alarm.
+    Value: !Ref HeatAlarm
