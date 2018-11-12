@@ -17,9 +17,12 @@ package com.amazonaws.services.dynamodb.diagnostics.demo;
 import com.amazonaws.services.dynamodb.diagnostics.DynamoDBKeyDiagnosticsClient;
 import com.amazonaws.services.dynamodb.diagnostics.DynamoDBKeyDiagnosticsClientBuilder;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
 import com.amazonaws.services.dynamodbv2.model.AttributeDefinition;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
 import com.amazonaws.services.dynamodbv2.model.CreateTableRequest;
+import com.amazonaws.services.dynamodbv2.model.DescribeTableRequest;
+import com.amazonaws.services.dynamodbv2.model.DescribeTableResult;
 import com.amazonaws.services.dynamodbv2.model.GetItemResult;
 import com.amazonaws.services.dynamodbv2.model.GlobalSecondaryIndex;
 import com.amazonaws.services.dynamodbv2.model.KeySchemaElement;
@@ -30,6 +33,8 @@ import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughput;
 import com.amazonaws.services.dynamodbv2.model.QueryRequest;
 import com.amazonaws.services.dynamodbv2.model.ResourceNotFoundException;
 import com.amazonaws.services.dynamodbv2.model.ScalarAttributeType;
+import com.amazonaws.services.dynamodbv2.model.TableStatus;
+import com.amazonaws.services.kinesis.AmazonKinesisClientBuilder;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.google.common.collect.ImmutableList;
@@ -72,6 +77,7 @@ final class MovieApplication {
     private static final String COUNTRY_ATTRIBUTE_NAME = "country";
     private static final String LIKES_ATTRIBUTE_NAME = "likes";
     private static final String DISLIKES_ATTRIBUTE_NAME = "dislikes";
+    private static final long DEFAULT_WAIT_TIME_FOR_CREATE_TABLE = 60;
 
     // The number of threads to use to drive background traffic.
     private static final int NUM_BACKGROUND_TRAFFIC_THREADS = 20;
@@ -83,7 +89,7 @@ final class MovieApplication {
     private static final double SURPRISE_HIT_RATE = 1000.0;
     // How many movies are browsed (Query) per second.
     private static final double BROWSE_RATE = 100;
-    private static final int NUM_ARGS = 2;
+    private static final int NUM_ARGS = 3;
     // Probability that I will like a movie (we're generous and tend to like more than dislike movies).
     private static final double PROBABILITY_TO_LIKE_MOVIE = 0.8;
 
@@ -95,8 +101,9 @@ final class MovieApplication {
     private MovieApplication() { }
 
     public static void main(final String[] args) throws IOException, InterruptedException {
+        log.info("loggerName: " + log.toString());
         if (args.length != NUM_ARGS) {
-            log.error("Usage: movies <TEST-NAME> <STREAM-NAME>");
+            log.error("Usage: movies <TEST-NAME> <STREAM-NAME> <REGION>");
             System.exit(22); //EINVAL
             return;
         }
@@ -104,8 +111,12 @@ final class MovieApplication {
         final AmazonS3 s3 = AmazonS3ClientBuilder.standard().withRegion(MOVIE_DATA_BUCKET_REGION).build();
 
         final String kinesisStreamName = args[1];
-        try (final DynamoDBKeyDiagnosticsClient instrumented = DynamoDBKeyDiagnosticsClientBuilder.defaultClient(
-                kinesisStreamName)) {
+        final String region = args[2];
+        try (DynamoDBKeyDiagnosticsClient instrumented = DynamoDBKeyDiagnosticsClientBuilder
+                .standard(kinesisStreamName)
+                .withKinesisClient(AmazonKinesisClientBuilder.standard().withRegion(region).build())
+                .withUnderlyingClient(AmazonDynamoDBClientBuilder.standard().withRegion(region).build())
+                .build()) {
             createMoviesTable(instrumented);
             switch (args[0].toLowerCase()) {
                 case "traffic":
@@ -147,6 +158,7 @@ final class MovieApplication {
                             )
                             .withProvisionedThroughput(new ProvisionedThroughput(COUNTRY_GLOBAL_INDEX_RCU, COUNTRY_GLOBAL_INDEX_WCU))
             );
+            waitForTableActive(dynamoDBClient, MOVIES_WITH_COUNTRIES_TABLE_NAME, DEFAULT_WAIT_TIME_FOR_CREATE_TABLE);
         }
     }
 
@@ -344,5 +356,34 @@ final class MovieApplication {
             }
         }
         return builder.build();
+    }
+
+    private static void waitForTableActive(AmazonDynamoDB dynamoDB, String tableName, long waitTimeSeconds) {
+        if (waitTimeSeconds < 0) {
+            throw new IllegalArgumentException("Invalid waitTimeSeconds " + waitTimeSeconds);
+        }
+
+        try {
+            long startTimeMs = System.currentTimeMillis();
+            long elapsedMs;
+            do {
+                DescribeTableResult describe = dynamoDB.describeTable(new DescribeTableRequest().withTableName(tableName));
+                String status = describe.getTable().getTableStatus();
+                if (TableStatus.ACTIVE.toString().equals(status)) {
+                    return;
+                }
+                if (TableStatus.DELETING.toString().equals(status)) {
+                    log.error("Table " + tableName + " is " + status + ", and waiting for it to become ACTIVE is not useful.");
+                    System.exit(22); //EINVAL
+                }
+                Thread.sleep(10 * 1000);
+                elapsedMs = System.currentTimeMillis() - startTimeMs;
+            } while (elapsedMs / 1000.0 < waitTimeSeconds);
+        } catch (InterruptedException e) {
+            log.error("Caught InterruptedException.", e);
+            System.exit(22); //EINVAL
+        }
+        log.error("Table " + tableName + " did not become ACTIVE after " + waitTimeSeconds + " seconds.");
+        System.exit(22); //EINVAL
     }
 }

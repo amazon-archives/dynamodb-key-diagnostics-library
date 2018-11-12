@@ -50,18 +50,14 @@ To use the DynamoDB Key Diagnostics Library or run the demo, you must have the f
 * Maven 3 or later
 * an AWS account
 
-Ensure the execution environment has been configured with AWS permissions as described for the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-config-files.html)
-
-For example using the AWS CLI:
-```shell
-aws configure
-```
-
 # Setup process
 
-## Installing dependencies
+Note: At the time, the library aggregates the metrics for keys at minute and second granularity.
+Depending on your business requirements, you may choose to modify the client to aggregate data differently. Currently, you can set up this post’s CloudFormation template in the following AWS Regions: US East (N Virginia), US West (Oregon), EU (Ireland), and EU (Frankfurt).
 
-To install the Key Diagnostics Library, run the following:
+## Step 1: Instal the Key Diagnostics Library
+
+To install the Key Diagnostics Library, run the following commands:
 
 ```shell
 mvn package
@@ -73,6 +69,66 @@ mvn install:install-file \
     -Dversion=1.0 \
     -Dpackaging=jar
 ```
+
+## Step 2: Configure your AWS credentials
+
+Configure your [AWS CLI](https://aws.amazon.com/cli/) credentials, if you haven't already. The following AWS resources will be synthesized under the configured account.
+
+```shell
+aws configure
+```
+Make sure you have [Amazon S3](https://aws.amazon.com/s3/), [AWS Lambda](https://aws.amazon.com/lambda/), [Amazon Kinesis](https://aws.amazon.com/kinesis/), [Amazon CloudWatch](https://aws.amazon.com/cloudwatch/) and CloudFormation permissions with the configured credentials.
+
+## Step 3: Create and deploy the required AWS resources by using the CloudFormation template
+
+You now will deploy a Lambda function for reporting and monitoring metrics.
+To do this, first upload the provided Lambda function to Amazon S3.
+If you don't have an Amazon S3 bucket already, [create one](https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingBucket.html).
+(Throughout the following instructions, replace the placeholder names with your own names.)
+
+```shell
+export BUCKET_NAME=my_cool_new_bucket
+aws s3 mb s3://$BUCKET_NAME
+```
+
+Then, package the provided Hot Key Lambda function the Amazon S3 bucket.
+
+```shell
+aws cloudformation package \
+    --template-file resources/DynamoDB_Key_Diagnostics_Library.yaml \
+    --s3-bucket $BUCKET_NAME \
+    --output-template-file packaged.yaml
+```
+
+You can then create the rest of the necessary AWS resources (such as the Amazon Kinesis Data Streams stream, Amazon Kinesis Data Analytics application, and CloudWatch alarm). Also, provide a CloudFormation stack name.
+
+```shell
+STACK_NAME=KeyDiagnosticsStack
+
+aws cloudformation deploy \
+    --template-file packaged.yaml \
+    --stack-name $STACK_NAME \
+    --capabilities CAPABILITY_IAM
+```
+
+CloudFormation does not automatically start the Kinesis Data Analytics application, so to start the application, navigate to the Amazon Kinesis console or run the following commands.
+
+```shell
+# Find out the Kinesis Analtyics Application Name by going to the Kinesis console or `aws kinesisanalytics list-applications`
+KINESIS_ANALYTICS_APP_NAME="Put your application name here"
+
+# Then, find out the InputID
+INPUT_ID=`aws kinesisanalytics describe-application \
+    --application-name $KINESIS_ANALYTICS_APP_NAME \
+    --query 'ApplicationDetail.InputDescriptions[0].InputId'`
+
+# Start the Kinesis Data Analytics app
+aws kinesisanalytics start-application \
+    --application-name $KINESIS_ANALYTICS_APP_NAME \
+    --input-configurations Id=$INPUT_ID,InputStartingPositionConfiguration={InputStartingPosition=NOW}
+```
+
+You now are ready to run the demo Movies example application in the repository (step 3.1) or change your code to use the Key Diagnostics Library (step 3.2).
 
 ## Client Usage
 To use the Key Diagnostics client, you first need to create a Kinesis stream that it can log to, then you can use that stream name
@@ -138,20 +194,7 @@ aws cloudformation deploy \
 We use [AWS Kinesis Data Analytics](https://aws.amazon.com/kinesis/data-analytics/) to aggregate your key usage.
 Since CloudFormation does not automatically start the analytics application, you will have to start the application manually on the Kinesis console, or by running:
 
-```shell
-# Find out the Kinesis Analtyics Application Name by going to the Kinesis console or `aws kinesisanalytics list-applications`
-KINESIS_ANALYTICS_APP_NAME="Put your application name here"
 
-# Then, find out the InputID
-INPUT_ID=`aws kinesisanalytics describe-application \
-    --application-name $KINESIS_ANALYTICS_APP_NAME \
-    --query 'ApplicationDetail.InputDescriptions[0].InputId'`
-
-# Start the Kinesis Data Analytics app
-aws kinesisanalytics start-application \
-    --application-name $KINESIS_ANALYTICS_APP_NAME \
-    --input-configurations Id=$INPUT_ID,InputStartingPositionConfiguration={InputStartingPosition=NOW}
-```
 
 ### Customizing your Kinesis Data Stream according to your DynamoDB Table
 
@@ -177,8 +220,9 @@ After you have installed the Key Diagnostics Library dependencies and setup all 
 Then, execute the demo by running:
 ```shell
 KINESIS_STREAM_NAME="Put your Kinesis Data Stream name here"
+REGION="Put the region where the Kinesis Data Stream and DynamoDB table are set up"
 
-mvn package exec:java@movies -Dexec.args="trend $KINESIS_STREAM_NAME"
+mvn package exec:java@movies -Dexec.args="trend $KINESIS_STREAM_NAME $REGION"
 ```
 
 ## Visualization through Amazon Athena and QuickSight

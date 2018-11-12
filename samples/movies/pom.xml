@@ -61,7 +61,7 @@
         <maven-checkstyle-plugin.version>3.0.0</maven-checkstyle-plugin.version>
         <maven-compiler-plugin.version>3.6.2</maven-compiler-plugin.version>
         <maven.enforcer.plugin.version>3.0.0-M2</maven.enforcer.plugin.version>
-        <slf4j-api.version>1.7.25</slf4j-api.version>
+        <slf4j-log4j12.version>1.7.25</slf4j-log4j12.version>
     </properties>
 
     <dependencies>
@@ -98,8 +98,8 @@
 
         <dependency>
             <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-            <version>${slf4j-api.version}</version>
+            <artifactId>slf4j-log4j12</artifactId>
+            <version>${slf4j-log4j12.version}</version>
         </dependency>
 
         <dependency>

@@ -14,6 +14,8 @@
  */
 package com.amazonaws.services.dynamodb.diagnostics;
 
+import com.amazonaws.SDKGlobalConfiguration;
+import com.amazonaws.regions.Regions;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
 import com.amazonaws.services.dynamodbv2.model.AttributeValueUpdate;
@@ -203,6 +205,7 @@ public class DynamoDBKeyDiagnosticsClientTest {
     }
 
     private DynamoDBKeyDiagnosticsClient createClient() {
+        System.setProperty(SDKGlobalConfiguration.AWS_REGION_SYSTEM_PROPERTY, "us-west-2");
         return DynamoDBKeyDiagnosticsClientBuilder.standard(STREAM_NAME)
                 .withUnderlyingClient(mockDB)
                 .withKinesisClient(mockKinesis)
