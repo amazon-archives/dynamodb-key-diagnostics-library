@@ -35,9 +35,12 @@ key usage and have heatmaps to help diagnose your application.
 └── samples                                                     <-- Contains the Movies demo application that uses the Key Diagnostics client
      └── movies
          ├── main
-         │   └── java
-         │       └── com.amazonaws.services.dynamodb.diagnostics.demo
-         │           └── MoviesApplication.java                 <-- Simulates hot key scenario with certain "hit movies"
+         │   ├── java
+         │   │   └── com.amazonaws.services.dynamodb.diagnostics.demo
+         │   │       └── MoviesApplication.java                 <-- Simulates hot key scenario with certain "hit movies"
+         │   │
+         │   └── resources
+         │       └── log4j.properties                           <-- Log4j configuration for the demo application
          ├── checkstyle.xml                                     <-- Checkstyle for the Movies demo application
          └── pom.xml                                            <-- Java and the Key Diagnostics client dependencies
 ```
@@ -232,11 +235,11 @@ First, go to the Athena Console, and put in the following under **New query 1**,
 
 ```sql
 CREATE DATABASE IF NOT EXISTS dynamodbkeydiagnosticslibrary
-COMMENT 'Athena database for DynamoDB Key Diagnostics Library;
+COMMENT 'Athena database for DynamoDB Key Diagnostics Library';
 ```
 
 Then, create the Athena table. Following the demo app, we will use `movies` as the table name.
-If you synthesized the AWS with the provided CloudFormation template in Step 1, the S3 Location should be something similar to: s3://keydiagnosticspdx-aggresultbucket-ejkhrnvyw8ku/keydiagnostics/
+If you synthesized the AWS with the provided CloudFormation template in Step 1, the S3 Location should be something similar to: s3:///keydiagnosticsstack-aggregatedresultbucket-ejkhrnvyw8ku/keydiagnostics/
 
 ```sql
 CREATE EXTERNAL TABLE `movies`(
@@ -253,7 +256,7 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT
     'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
 LOCATION
-    's3://keydiagnosticspdx-aggresultbucket-ejkhrnvyw8ku/keydiagnostics/'
+    's3:///keydiagnosticsstack-aggregatedresultbucket-ejkhrnvyw8ku/keydiagnostics/'
 ```
 
 After setting the Athena table, you can use QuickSight to visualize the key usage pattern of your application:
