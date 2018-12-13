@@ -23,6 +23,7 @@ import com.amazonaws.services.dynamodbv2.model.GlobalSecondaryIndexDescription;
 import com.amazonaws.services.dynamodbv2.model.KeySchemaElement;
 import com.amazonaws.services.kinesis.AmazonKinesis;
 import com.amazonaws.services.kinesis.AmazonKinesisClientBuilder;
+
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
@@ -63,7 +64,7 @@ public class DynamoDBKeyDiagnosticsClientBuilder {
 
     /**
      * Creates a standard client builder using default credential chains for the underlying clients and no monitored
-     * keys (should be filled later using {@link DynamoDBKeyDiagnosticsClientBuilder#addKeysToMonitor(String, Collection)})
+     * keys (should be filled later using{@link DynamoDBKeyDiagnosticsClientBuilder#addKeysToMonitor(String, Collection)})
      * @param kinesisStreamName The Kinesis stream name to use for key usage information.
      * @return The client builder.
      */
@@ -143,14 +144,36 @@ public class DynamoDBKeyDiagnosticsClientBuilder {
 
     /**
      * If true, assume each of the DynamoDB operations consumes capacity.
-     * @param defaultConsumedCapacity If true, the DynamoDBKeyDiagnosticsClient assumes all DynamoDB operations will consume a default capacity,
-     *                                   when consumed capacity units are not returned.
-     *                                   For example, you may use this option to test against DynamoDB Local (where consumed capacity is not returned).
-     *                                   DynamoDBKeyDiagnosticsClient will put the default consumed capacity into the Kinesis Data Stream.
+     * @param defaultConsumedCapacity If true, the DynamoDBKeyDiagnosticsClient assumes all DynamoDB operations will consume a
+     *                                default capacity, when consumed capacity units are not returned.
+     *                                For example, you may use this option to test against DynamoDB Local (where consumed capacity
+     *                                is not returned).
+     *                                DynamoDBKeyDiagnosticsClient will put the default consumed capacity into the Kinesis Data Stream.
      * @return This object for method chaining.
      */
     public DynamoDBKeyDiagnosticsClientBuilder withDefaultConsumedCapacity(final boolean defaultConsumedCapacity) {
         this.useDefaultConsumedCapacity = defaultConsumedCapacity;
+        return this;
+    }
+
+    /**
+     * Add all the partition keys for all the tables and global secondary indexes currently in the DynamoDB account.
+     * @return This object for method chaining.
+     */
+    public DynamoDBKeyDiagnosticsClientBuilder monitorAllPartitionKeys() {
+        final DynamoDB dynamoDB = new DynamoDB(underlyingClient);
+        for (Table table: dynamoDB.listTables()) {
+            table.describe();
+            final Set<String> tableAttributesBuilder = getTableKeySet(table.getTableName());
+            final KeySchemaElement partitionKey = table.getDescription().getKeySchema().get(0);
+            tableAttributesBuilder.add(partitionKey.getAttributeName());
+            if (table.getDescription().getGlobalSecondaryIndexes() != null) {
+                for (GlobalSecondaryIndexDescription index : table.getDescription().getGlobalSecondaryIndexes()) {
+                    final KeySchemaElement indexPartitionKey = index.getKeySchema().get(0);
+                    tableAttributesBuilder.add(indexPartitionKey.getAttributeName());
+                }
+            }
+        }
         return this;
     }
 
@@ -175,27 +198,6 @@ public class DynamoDBKeyDiagnosticsClientBuilder {
     DynamoDBKeyDiagnosticsClientBuilder addKeysToMonitor(final String tableName,
                                                          final Collection<String> keyNames) {
         getTableKeySet(tableName).addAll(keyNames);
-        return this;
-    }
-
-    /**
-     * Add all the partition keys for all the tables and global secondary indexes currently in the DynamoDB account.
-     * @return This object for method chaining.
-     */
-    DynamoDBKeyDiagnosticsClientBuilder monitorAllPartitionKeys() {
-        final DynamoDB dynamoDB = new DynamoDB(underlyingClient);
-        for (Table table: dynamoDB.listTables()) {
-            table.describe();
-            final Set<String> tableAttributesBuilder = getTableKeySet(table.getTableName());
-            final KeySchemaElement partitionKey = table.getDescription().getKeySchema().get(0);
-            tableAttributesBuilder.add(partitionKey.getAttributeName());
-            if (table.getDescription().getGlobalSecondaryIndexes() != null) {
-                for (GlobalSecondaryIndexDescription index : table.getDescription().getGlobalSecondaryIndexes()) {
-                    final KeySchemaElement indexPartitionKey = index.getKeySchema().get(0);
-                    tableAttributesBuilder.add(indexPartitionKey.getAttributeName());
-                }
-            }
-        }
         return this;
     }
 

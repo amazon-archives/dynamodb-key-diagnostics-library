@@ -57,9 +57,9 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -71,7 +71,7 @@ import static org.junit.Assert.assertThat;
 @Slf4j
 public class DynamoDBKeyDiagnosticsClientIT {
     private static final Regions REGION = Regions.US_WEST_2;
-    private static final int TEST_IDENTIFIER = ThreadLocalRandom.current().nextInt(0, 100000);
+    private static final int TEST_IDENTIFIER = new SecureRandom().nextInt(100000);
     private static final String STREAM_NAME = "diagnostics-test-stream-" + TEST_IDENTIFIER;
     private static final String HASH_TABLE_NAME = "diagnostics-hash-test-table-" + TEST_IDENTIFIER;
     private static final String HASH_RANGE_TABLE_NAME = "diagnostics-hash-range-test-table-" + TEST_IDENTIFIER;

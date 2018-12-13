@@ -14,16 +14,80 @@ Parameters:
     Type: String
     Default: hot-keys-logs-stream
     Description: CloudWatch Logs Stream name for recording hot key logs.
+  HotKeyAlarmPeriod:
+    Type: Number
+    Default: 51600
+    Description: The time period used for evaluation, in seconds, in multiples of 60.
+  HotKeyAlarmThreshold:
+    Type: Number
+    Default: 500
+    Description: The threshold to alarm on a key for being hot.
+
 Resources:
+  KeyDiagnosticsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - kinesisanalytics.amazonaws.com
+                - firehose.amazonaws.com
+                - lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: KinesisAnalyticsAppInput
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kinesis:DescribeStream
+                  - kinesis:GetShardIterator
+                  - kinesis:GetRecords
+                Resource: !Sub "arn:aws:kinesis:${AWS::Region}:${AWS::AccountId}:stream/*"
+        - PolicyName: FirehoseOutput
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - firehose:DescribeDeliveryStream
+                  - firehose:PutRecord
+                  - firehose:PutRecordBatch
+                  - s3:AbortMultipartUpload
+                  - s3:GetBucketLocation
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                  - s3:PutObject
+                Resource:
+                  - !Sub "arn:aws:firehose:${AWS::Region}:${AWS::AccountId}:deliverystream/*"
+                  - !Sub "${AggregatedResultBucket.Arn}/*"
+        - PolicyName: LambdaOutput
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                  - lambda:GetFunctionConfiguration
+                Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*"
+
   SourceStream:
     Type: AWS::Kinesis::Stream
     Properties:
       ShardCount:
         Ref: KinesisSourceStreamShardCount
-  AggregatedResultBucket:
-    Type: AWS::S3::Bucket
-    Properties: {}
-  AnalyticKeyDiagnostics:
+      StreamEncryption:
+        EncryptionType: KMS
+        # This is a KMS alias that points to an AWS Managed CMK provided by Kinesis.
+        KeyId: alias/aws/kinesis
+
+  AnalyticsApplication:
     Type: AWS::KinesisAnalytics::Application
     Properties:
       ApplicationDescription: Kinesis Analytics Application for DynamoDB Key Diagnostics Library
@@ -137,24 +201,19 @@ Resources:
               "HashKey",
               "HashKeyValue",
               "Operation";
-  HeatAlarm:
-    Type: AWS::CloudWatch::Alarm
+  AnalyticsOutputFirehose:
+    Type: AWS::KinesisAnalytics::ApplicationOutput
     Properties:
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      EvaluationPeriods: 1
-      MetricName: Breaching key total IO
-      Namespace: DynamoDBKeyDiagnosticsLibrary
-      Period: '21600'
-      Threshold: 500
-      Statistic: Maximum
+      ApplicationName: !Ref AnalyticsApplication
+      Output:
+        Name: SECOND_AGGREGATED_STREAM
+        DestinationSchema:
+          RecordFormatType: JSON
+        KinesisFirehoseOutput:
+          ResourceARN: !GetAtt FirehoseS3.Arn
+          RoleARN: !GetAtt KeyDiagnosticsRole.Arn
     DependsOn:
-      - HotKeyLoggerLambdaFunction
-  HotKeyLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName:
-        Ref: HotKeyLogsGroupName
-
+      - AnalyticsApplication
   FirehoseS3:
     Type: AWS::KinesisFirehose::DeliveryStream
     Properties:
@@ -167,45 +226,22 @@ Resources:
         CompressionFormat: UNCOMPRESSED
         Prefix: diagnostics/
         RoleARN: !GetAtt KeyDiagnosticsRole.Arn
-  AnalyticOutput:
+        EncryptionConfiguration:
+          KMSEncryptionConfig:
+            AWSKMSKeyARN: !Sub "arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/aws/s3"
+  AggregatedResultBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: aws:kms
+                # This is a KMS alias that points to an AWS Managed CMK provided by S3.
+                KMSMasterKeyID: alias/aws/s3
+  AnalyticsOutputLambda:
     Type: AWS::KinesisAnalytics::ApplicationOutput
     Properties:
-      ApplicationName: !Ref AnalyticKeyDiagnostics
-      Output:
-        Name: SECOND_AGGREGATED_STREAM
-        DestinationSchema:
-          RecordFormatType: JSON
-        KinesisFirehoseOutput:
-          ResourceARN: !GetAtt FirehoseS3.Arn
-          RoleARN: !GetAtt KeyDiagnosticsRole.Arn
-    DependsOn:
-      - AnalyticKeyDiagnostics
-  KeyDiagnosticsRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - kinesisanalytics.amazonaws.com
-                - firehose.amazonaws.com
-                - lambda.amazonaws.com
-            Action: 'sts:AssumeRole'
-      Path: /
-      Policies:
-        - PolicyName: Open
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action: '*'
-                Resource: '*'
-  KinesisOutputLambda:
-    Type: AWS::KinesisAnalytics::ApplicationOutput
-    Properties:
-      ApplicationName: !Ref AnalyticKeyDiagnostics
+      ApplicationName: !Ref AnalyticsApplication
       Output:
         Name: MINUTE_AGGREGATED_STREAM
         DestinationSchema:
@@ -230,6 +266,25 @@ Resources:
             Ref: HotKeyLogsGroupName
           HOT_KEY_LOGS_STREAM_PREFIX:
             Ref: HotKeyLogsStreamPrefix
+  HeatAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 1
+      MetricName: Breaching key total IO
+      Namespace: DynamoDBKeyDiagnosticsLibrary
+      Period:
+        Ref: HotKeyAlarmPeriod
+      Threshold:
+        Ref: HotKeyAlarmThreshold
+      Statistic: Maximum
+    DependsOn:
+      - HotKeyLoggerLambdaFunction
+  HotKeyLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Ref: HotKeyLogsGroupName
 
 Outputs:
   SourceStreamName:
@@ -237,7 +292,7 @@ Outputs:
     Value: !Ref SourceStream
   KinesisAnalyticAppName:
     Description: Name of Kinesis Data Analytics Application.
-    Value: !Ref AnalyticKeyDiagnostics
+    Value: !Ref AnalyticsApplication
   S3BucketName:
     Description: Name of S3 bucket for storing aggregated data from Kinesis Analytics.
     Value: !Ref AggregatedResultBucket

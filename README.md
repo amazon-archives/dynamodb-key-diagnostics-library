@@ -4,7 +4,7 @@ as your application reads/writes data from/to DynamoDB. You can then use [Kinesi
 to monitor and alarm if any single key gets too hot, and to feed into [S3](https://aws.amazon.com/s3/)/[Athena](https://aws.amazon.com/athena/)/[QuickSight](https://aws.amazon.com/quicksight/) to report on your detailed
 key usage and have heatmaps to help diagnose your application.
 
-```bash
+```
 .
 ├── README.md                                                   <-- This instructions file
 ├── LICENSE.txt                                                 <-- Apache Software License 2.0
@@ -23,9 +23,9 @@ key usage and have heatmaps to help diagnose your application.
 ├── src
 │   ├── main
 │   │   └── java
-│   │       └── com.amazonaws.services.dynamodb.diagnostics     <-- Classes to manage Dagger 2 dependency injection
+│   │       └── com.amazonaws.services.dynamodb.diagnostics     <-- Main package for Key Diagnostics Client
 │   │           ├── DynamoDBKeyDiagnosticsClient.java           <-- Contains inject methods for handler entrypoints
-│   │           └── DynamoDBKeyDiagnosticsClientBuidler.java    <-- Provides dependencies like the DynamoDB client for injection
+│   │           └── DynamoDBKeyDiagnosticsClientBuilder.java    <-- Provides dependencies like the DynamoDB client for injection
 │   └── test                                                    <-- Unit and integration tests
 │       └── java
 │           └── com.amazonaws.services.dynamodb.diagnostics
@@ -55,22 +55,17 @@ To use the DynamoDB Key Diagnostics Library or run the demo, you must have the f
 
 # Setup process
 
-Note: At the time, the library aggregates the metrics for keys at minute and second granularity.
+Note: At this time, the library aggregates the metrics for keys at minute and second granularity.
 Depending on your business requirements, you may choose to modify the client to aggregate data differently. Currently, you can set up this post’s CloudFormation template in the following AWS Regions: US East (N Virginia), US West (Oregon), EU (Ireland), and EU (Frankfurt).
 
-## Step 1: Instal the Key Diagnostics Library
+> With the following setup, the DynamoDB Key Diagnostics Library will log the values of your partition key, sort key or any attributes for the selected DynamoDB table. The key usage information will be stored on S3, and specific hot keys will be logged and displayed through Amazon CloudWatch and Amazon QuickSight.
 
-To install the Key Diagnostics Library, run the following commands:
+## Step 1: Install the Key Diagnostics Library
+
+To install the Key Diagnostics Library, run the following command:
 
 ```shell
-mvn package
-
-mvn install:install-file \
-    -Dfile=target/dynamodb-key-diagnostics-library-1.0-jar-with-dependencies.jar \
-    -DgroupId=com.amazonaws.services.dynamodb.diagnostics \
-    -DartifactId=dynamodb-key-diagnostics-library \
-    -Dversion=1.0 \
-    -Dpackaging=jar
+mvn install
 ```
 
 ## Step 2: Configure your AWS credentials
@@ -84,7 +79,7 @@ Make sure you have [Amazon S3](https://aws.amazon.com/s3/), [AWS Lambda](https:/
 
 ## Step 3: Create and deploy the required AWS resources by using the CloudFormation template
 
-You now will deploy a Lambda function for reporting and monitoring metrics.
+You will now deploy a Lambda function for reporting and monitoring metrics.
 To do this, first upload the provided Lambda function to Amazon S3.
 If you don't have an Amazon S3 bucket already, [create one](https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingBucket.html).
 (Throughout the following instructions, replace the placeholder names with your own names.)
@@ -114,6 +109,20 @@ aws cloudformation deploy \
     --capabilities CAPABILITY_IAM
 ```
 
+### Customizing your Kinesis Data Stream according to your DynamoDB Table
+
+Depending on the provisioned capacity of your DynamoDB table, you may change the shard count of the Kinesis Data Stream used to process your requests. The default and minimum is 4 shards.
+To override the shard count, you add the following override instead:
+```shell
+SHARD_COUNT=10
+
+aws cloudformation deploy \
+    --template-file packaged.yaml \
+    --stack-name postreview \
+    --capabilities CAPABILITY_IAM
+    --parameter-overrides KinesisSourceStreamShardCount=$SHARD_COUNT
+```
+
 CloudFormation does not automatically start the Kinesis Data Analytics application, so to start the application, navigate to the Amazon Kinesis console or run the following commands.
 
 ```shell
@@ -133,7 +142,22 @@ aws kinesisanalytics start-application \
 
 You now are ready to run the demo Movies example application in the repository (step 3.1) or change your code to use the Key Diagnostics Library (step 3.2).
 
-## Client Usage
+## Step 3.1: Running the Demo
+
+This demo uses the [IMDb meta-data](https://registry.opendata.aws/imdb/) dataset to create an application that rates movies by putting in items into DynamoDB.
+Certain movies will be "trending", thus creating an uneven load on certain hash keys.
+
+After you have installed the Key Diagnostics Library dependencies and setup all the AWS resources, navigate to the `samples/movies/` directory.
+
+Then, execute the demo by running:
+```shell
+KINESIS_STREAM_NAME="Put your Kinesis Data Stream name here"
+REGION="Put the region where the Kinesis Data Stream and DynamoDB table are set up"
+
+mvn package exec:java@movies -Dexec.args="trend $KINESIS_STREAM_NAME $REGION"
+```
+
+## Step 3.2: Integrating with your existing DynamoDB code
 To use the Key Diagnostics client, you first need to create a Kinesis stream that it can log to, then you can use that stream name
 along with the Kinesis client and the DynamoDB client you're wrapping to create the Key Diagnostics client. You also
 need to specify which key attributes in which tables you need to monitor - the easiest way to do that is to use the
@@ -165,70 +189,7 @@ client (it implements the AmazonDynamoDB interface). The diagnostics client crea
 log the key usage information to Kinesis, so when you're done with it you should `close()` it so that it can shut down
 those threads.
 
-## Packaging and Deployment
-
-We will synthesize the AWS resources through CloudFormation and Serverless Application Model (SAM).
-One of the resources is an AWS Lambda function that emits hot key metrics and logs the hot key to CloudWatch Metrics and CloudWatch Logs respectively.
-To use the Lambda function, we need a S3 bucket where we can upload our Lambda function packaged as ZIP before we deploy anything - If you don't have a S3 bucket to store code artifacts then this is a good time to create one:
-
-```shell
-export BUCKET_NAME=my_cool_new_bucket
-aws s3 mb s3://$BUCKET_NAME
-```
-
-Then, we can package our Hot Key Lambda function (under `resources/python/src/diagnostics/hot_key_logger_lambda.py`) to S3:
-```shell
-aws cloudformation package \
-    --template-file resources/DynamoDB_Key_Diagnostics_Library.yaml \
-    --s3-bucket $BUCKET_NAME \
-    --output-template-file packaged.yaml
-```
-
-Lastly, we can synthesize the rest of our resources with:
-```shell
-STACK_NAME=KeyDiagnosticsStack
-
-aws cloudformation deploy \
-    --template-file packaged.yaml \
-    --stack-name $STACK_NAME \
-    --capabilities CAPABILITY_IAM
-```
-
-We use [AWS Kinesis Data Analytics](https://aws.amazon.com/kinesis/data-analytics/) to aggregate your key usage.
-Since CloudFormation does not automatically start the analytics application, you will have to start the application manually on the Kinesis console, or by running:
-
-
-
-### Customizing your Kinesis Data Stream according to your DynamoDB Table
-
-Depending on the provisioned capacity of your DynamoDB table, you may change the shard count of the Kinesis Data Stream used to process your requests. The default and minimum is 4 shards.
-To override the shard count, you add the following override instead:
-```shell
-SHARD_COUNT=10
-
-aws cloudformation deploy \
-    --template-file packaged.yaml \
-    --stack-name postreview \
-    --capabilities CAPABILITY_IAM
-    --parameter-overrides KinesisSourceStreamShardCount=$SHARD_COUNT
-```
-
-## Running the Demo
-
-This demo uses the [IMDb meta-data](https://registry.opendata.aws/imdb/) dataset to create an application that rates movies by putting in items into DynamoDB.
-Certain movies will be "trending", thus creating an uneven load on certain hash keys.
-
-After you have installed the Key Diagnostics Library dependencies and setup all the AWS resources, navigate to the `samples/movies/` directory.
-
-Then, execute the demo by running:
-```shell
-KINESIS_STREAM_NAME="Put your Kinesis Data Stream name here"
-REGION="Put the region where the Kinesis Data Stream and DynamoDB table are set up"
-
-mvn package exec:java@movies -Dexec.args="trend $KINESIS_STREAM_NAME $REGION"
-```
-
-## Visualization through Amazon Athena and QuickSight
+## Step 4: Visualization through Amazon Athena and QuickSight
 If you are interested in creating dashboards or querying the key usage information, or wish to understand what the access patterns of certain attributes, we highly recommend setting up [Athena](https://aws.amazon.com/athena/) and [QuickSight](https://aws.amazon.com/quicksight/).
 
 First, go to the Athena Console, and put in the following under **New query 1**, then click **Run Query**. This will create an Athena database for the key usage information stored on S3:
@@ -279,5 +240,5 @@ mvn test
 ### Running integration tests
 Integration tests do not mock out the `AmazonDynamoDBClient` and require connectivity to a DynamoDB endpoint. As such, the POM starts DynamoDB Local from the Dockerhub image for integration tests.
 ```shell
-mvn verify
+mvn verify -P integration-tests
 ```

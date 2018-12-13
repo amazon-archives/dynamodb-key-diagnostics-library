@@ -12,6 +12,7 @@
  * express or implied. See the License for the specific language governing
  * permissions and limitations under the License.
  */
+
 package com.amazonaws.services.dynamodb.diagnostics.demo;
 
 import com.amazonaws.services.dynamodb.diagnostics.DynamoDBKeyDiagnosticsClient;
@@ -37,21 +38,24 @@ import com.amazonaws.services.dynamodbv2.model.TableStatus;
 import com.amazonaws.services.kinesis.AmazonKinesisClientBuilder;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.util.concurrent.RateLimiter;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.math3.distribution.EnumeratedDistribution;
 import org.apache.commons.math3.util.Pair;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.util.concurrent.RateLimiter;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.InvalidObjectException;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -80,7 +84,7 @@ final class MovieApplication {
     private static final long DEFAULT_WAIT_TIME_FOR_CREATE_TABLE = 60;
 
     // The number of threads to use to drive background traffic.
-    private static final int NUM_BACKGROUND_TRAFFIC_THREADS = 20;
+    private static final int NUM_BACKGROUND_TRAFFIC_THREADS = 10;
     // How many ratings to target per second for the background traffic.
     private static final double BACKGROUND_TRAFFIC_RATE = 500.0;
     // The number of threads to use in our "surprise hit" traffic.
@@ -114,16 +118,18 @@ final class MovieApplication {
         final String region = args[2];
         try (DynamoDBKeyDiagnosticsClient instrumented = DynamoDBKeyDiagnosticsClientBuilder
                 .standard(kinesisStreamName)
+                .monitorAllPartitionKeys()
                 .withKinesisClient(AmazonKinesisClientBuilder.standard().withRegion(region).build())
                 .withUnderlyingClient(AmazonDynamoDBClientBuilder.standard().withRegion(region).build())
                 .build()) {
             createMoviesTable(instrumented);
-            switch (args[0].toLowerCase()) {
+            switch (args[0].toLowerCase(Locale.ENGLISH)) {
                 case "traffic":
                     backgroundTraffic(s3, instrumented);
                     break;
                 case "trend":
                     trend(s3, instrumented);
+                    break;
                 default:
                     log.error("Unknown test: " + args[0]);
                     System.exit(22); //EINVAL
@@ -143,18 +149,27 @@ final class MovieApplication {
                     new CreateTableRequest()
                             .withTableName(MOVIES_WITH_COUNTRIES_TABLE_NAME)
                             .withAttributeDefinitions(
-                                    new AttributeDefinition().withAttributeName(MOVIE_NAME_ATTRIBUTE_NAME).withAttributeType(ScalarAttributeType.S),
-                                    new AttributeDefinition().withAttributeName(COUNTRY_ATTRIBUTE_NAME).withAttributeType(ScalarAttributeType.S)
+                                    new AttributeDefinition()
+                                            .withAttributeName(MOVIE_NAME_ATTRIBUTE_NAME)
+                                            .withAttributeType(ScalarAttributeType.S),
+                                    new AttributeDefinition()
+                                            .withAttributeName(COUNTRY_ATTRIBUTE_NAME)
+                                            .withAttributeType(ScalarAttributeType.S)
                             )
                             .withKeySchema(new KeySchemaElement().withAttributeName(MOVIE_NAME_ATTRIBUTE_NAME).withKeyType(KeyType.HASH))
                             .withGlobalSecondaryIndexes(
                                     new GlobalSecondaryIndex()
                                             .withIndexName(COUNTRY_GLOBAL_INDEX_NAME)
                                             .withKeySchema(
-                                                    new KeySchemaElement().withAttributeName(COUNTRY_ATTRIBUTE_NAME).withKeyType(KeyType.HASH),
-                                                    new KeySchemaElement().withAttributeName(MOVIE_NAME_ATTRIBUTE_NAME).withKeyType(KeyType.RANGE))
+                                                    new KeySchemaElement()
+                                                            .withAttributeName(COUNTRY_ATTRIBUTE_NAME)
+                                                            .withKeyType(KeyType.HASH),
+                                                    new KeySchemaElement()
+                                                            .withAttributeName(MOVIE_NAME_ATTRIBUTE_NAME)
+                                                            .withKeyType(KeyType.RANGE))
                                             .withProjection(new Projection().withProjectionType(ProjectionType.KEYS_ONLY))
-                                            .withProvisionedThroughput(new ProvisionedThroughput(MOVIES_WITH_COUNTRIES_RCU, MOVIES_WITH_COUNTRIES_WCU))
+                                            .withProvisionedThroughput(
+                                                    new ProvisionedThroughput(MOVIES_WITH_COUNTRIES_RCU, MOVIES_WITH_COUNTRIES_WCU))
                             )
                             .withProvisionedThroughput(new ProvisionedThroughput(COUNTRY_GLOBAL_INDEX_RCU, COUNTRY_GLOBAL_INDEX_WCU))
             );
@@ -169,7 +184,7 @@ final class MovieApplication {
                               final AmazonDynamoDB dynamoDB) throws IOException, InterruptedException {
         log.info("Reading movies");
         final ImmutableList<Movie> movies = readMovies(s3);
-        final Movie surpriseHit = movies.get(ThreadLocalRandom.current().nextInt(movies.size()));
+        final Movie surpriseHit = movies.get(new SecureRandom().nextInt(movies.size()));
         log.info("Chose {} (country: {}) as my surprise trending hit. Starting worker threads",
                 surpriseHit.getName(), surpriseHit.getCountry());
         final RateLimiter rateLimiter = RateLimiter.create(SURPRISE_HIT_RATE);
@@ -298,8 +313,11 @@ final class MovieApplication {
     private static void rateMovie(final AmazonDynamoDB dynamoDB,
                                   final Movie wantedMovie) {
         AttributeValue movieNameAttribute = new AttributeValue().withS(wantedMovie.getName());
-        GetItemResult item = dynamoDB.getItem(MOVIES_WITH_COUNTRIES_TABLE_NAME, ImmutableMap.of(MOVIE_NAME_ATTRIBUTE_NAME, movieNameAttribute));
-        long currentLikes, currentDislikes;
+        GetItemResult item = dynamoDB.getItem(
+                MOVIES_WITH_COUNTRIES_TABLE_NAME,
+                ImmutableMap.of(MOVIE_NAME_ATTRIBUTE_NAME, movieNameAttribute));
+        long currentLikes;
+        long currentDislikes;
         if (item.getItem() == null) {
             currentLikes = currentDislikes = 0;
         } else {

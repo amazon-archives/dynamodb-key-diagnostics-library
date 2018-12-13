@@ -38,6 +38,10 @@ import com.amazonaws.services.dynamodbv2.model.UpdateItemRequest;
 import com.amazonaws.services.dynamodbv2.model.UpdateItemResult;
 import com.amazonaws.services.dynamodbv2.model.WriteRequest;
 import com.amazonaws.services.kinesis.AmazonKinesis;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import lombok.experimental.Delegate;
+import lombok.extern.slf4j.Slf4j;
+
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.gson.Gson;
@@ -60,10 +64,6 @@ import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
-import lombok.experimental.Delegate;
-import lombok.extern.slf4j.Slf4j;
-
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
@@ -85,7 +85,8 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
 
     /**
      * Default consumed capacity units for different DynamoDB operations.
-     * These defaults are used when the return object from the DynamoDB client does not contain the consumed capacity units.
+     * These defaults are used when the return object from the DynamoDB client does not contain
+     * the consumed capacity units.
     */
     static final double DEFAULT_DELETE_CONSUMED_CAPACITY_UNITS = 1.0;
     static final double DEFAULT_PUT_CONSUMED_CAPACITY_UNITS = 1.0;
@@ -114,28 +115,46 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
      */
     private interface Implemented {
         DeleteItemResult deleteItem(DeleteItemRequest deleteItemRequest);
+
         DeleteItemResult deleteItem(String tableName, Map<String, AttributeValue> key);
+
         DeleteItemResult deleteItem(String tableName, Map<String, AttributeValue> key, String returnValues);
+
         PutItemResult putItem(PutItemRequest request);
+
         PutItemResult putItem(String tableName, Map<String, AttributeValue> item);
+
         PutItemResult putItem(String tableName, Map<String, AttributeValue> item, String returnValues);
+
         GetItemResult getItem(GetItemRequest request);
+
         GetItemResult getItem(String tableName, Map<String, AttributeValue> key);
+
         GetItemResult getItem(String tableName, Map<String, AttributeValue> key, Boolean consistentRead);
+
         BatchWriteItemResult batchWriteItem(BatchWriteItemRequest batchWriteItemRequest);
+
         BatchWriteItemResult batchWriteItem(Map<String, List<WriteRequest>> requestItems);
+
         BatchGetItemResult batchGetItem(BatchGetItemRequest batchGetItemRequest);
+
         BatchGetItemResult batchGetItem(Map<String, KeysAndAttributes> requestItems);
+
         BatchGetItemResult batchGetItem(Map<String, KeysAndAttributes> requestItems, String returnConsumedCapacity);
+
         QueryResult query(QueryRequest queryRequest);
+
         UpdateItemResult updateItem(UpdateItemRequest updateItemRequest);
+
         UpdateItemResult updateItem(String tableName,
                                     Map<String, AttributeValue> key,
                                     Map<String, AttributeValueUpdate> attributeUpdates);
+
         UpdateItemResult updateItem(String tableName,
                                     Map<String, AttributeValue> key,
                                     Map<String, AttributeValueUpdate> attributeUpdates,
                                     String returnValues);
+
         void setEndpoint(String var1);
     }
 
@@ -147,8 +166,9 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
      * @param tablesAndAttributesToMonitor The collection of tables and attributes within those tables that we should
      *                                     monitor for key usage information.
      * @param streamPutterService The executor service to asynchronously log into Kinesis.
-     * @param useDefaultConsumedCapacity If true, the DynamoDBKeyDiagnosticsClient will assume each DynamoDB operation consumed a default capacity,
-     *                                   even when the response object does not include it (eg. integration testing with DynamoDB Local)
+     * @param useDefaultConsumedCapacity If true, the DynamoDBKeyDiagnosticsClient will assume each DynamoDB operation
+     *                                   consumed a default capacity, even when the response object does not include it
+     *                                   (eg. integration testing with DynamoDB Local)
      */
     DynamoDBKeyDiagnosticsClient(
             final AmazonDynamoDB underlyingClient,
@@ -165,7 +185,7 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
         this.useDefaultConsumedCapacity = useDefaultConsumedCapacity;
     }
 
-    @SuppressFBWarnings(value="RV_RETURN_VALUE_IGNORED_BAD_PRACTICE")
+    @SuppressFBWarnings(value = "RV_RETURN_VALUE_IGNORED_BAD_PRACTICE")
     public DeleteItemResult deleteItem(final DeleteItemRequest request) {
         final Instant startTime = Instant.now();
         final DeleteItemRequest instrumented = request.withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
@@ -185,7 +205,7 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
         return deleteItem(new DeleteItemRequest().withTableName(tableName).withKey(key).withReturnValues(returnValues));
     }
 
-    @SuppressFBWarnings(value="RV_RETURN_VALUE_IGNORED_BAD_PRACTICE")
+    @SuppressFBWarnings(value = "RV_RETURN_VALUE_IGNORED_BAD_PRACTICE")
     public PutItemResult putItem(final PutItemRequest request) {
         final Instant startTime = Instant.now();
         final PutItemRequest instrumented = request.withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
@@ -205,7 +225,7 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
         return putItem(new PutItemRequest().withTableName(tableName).withItem(item).withReturnValues(returnValues));
     }
 
-    @SuppressFBWarnings(value="RV_RETURN_VALUE_IGNORED_BAD_PRACTICE")
+    @SuppressFBWarnings(value = "RV_RETURN_VALUE_IGNORED_BAD_PRACTICE")
     public GetItemResult getItem(final GetItemRequest request) {
         final Instant startTime = Instant.now();
         final GetItemRequest instrumented = request.withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
@@ -225,7 +245,7 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
         return getItem(new GetItemRequest().withTableName(tableName).withKey(key).withConsistentRead(consistentRead));
     }
 
-    @SuppressFBWarnings(value="RV_RETURN_VALUE_IGNORED_BAD_PRACTICE")
+    @SuppressFBWarnings(value = "RV_RETURN_VALUE_IGNORED_BAD_PRACTICE")
     public QueryResult query(final QueryRequest request) {
         final Instant startTime = Instant.now();
         final QueryRequest instrumented = request.withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
@@ -235,7 +255,7 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
         return result;
     }
 
-    @SuppressFBWarnings(value="RV_RETURN_VALUE_IGNORED_BAD_PRACTICE")
+    @SuppressFBWarnings(value = "RV_RETURN_VALUE_IGNORED_BAD_PRACTICE")
     public BatchWriteItemResult batchWriteItem(final BatchWriteItemRequest request) {
         final Instant startTime = Instant.now();
         final BatchWriteItemRequest instrumented = request.withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
@@ -249,7 +269,7 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
         return batchWriteItem(new BatchWriteItemRequest().withRequestItems(requestItems));
     }
 
-    @SuppressFBWarnings(value="RV_RETURN_VALUE_IGNORED_BAD_PRACTICE")
+    @SuppressFBWarnings(value = "RV_RETURN_VALUE_IGNORED_BAD_PRACTICE")
     public BatchGetItemResult batchGetItem(final BatchGetItemRequest request) {
         final Instant startTime = Instant.now();
         final BatchGetItemRequest instrumented = request.withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
@@ -268,7 +288,7 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
         return batchGetItem(requestItems);
     }
 
-    @SuppressFBWarnings(value="RV_RETURN_VALUE_IGNORED_BAD_PRACTICE")
+    @SuppressFBWarnings(value = "RV_RETURN_VALUE_IGNORED_BAD_PRACTICE")
     public UpdateItemResult updateItem(final UpdateItemRequest request) {
         final Instant startTime = Instant.now();
         final UpdateItemRequest instrumented = request.withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
@@ -365,30 +385,6 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
         );
     }
 
-    private Map<String, AttributeValue> parseKeyConditionExpression(final QueryRequest request) {
-        if (request.getKeyConditionExpression() == null) {
-            return ImmutableMap.of();
-        }
-        final Matcher matcher = KEY_EXPRESSION_PATTERN.matcher(request.getKeyConditionExpression());
-        final ImmutableMap.Builder<String, AttributeValue> builder = ImmutableMap.builder();
-        while (matcher.find()) {
-            String keyName = matcher.group("Key");
-            final String valueName = matcher.group("Value");
-            final AttributeValue value = request.getExpressionAttributeValues().get(valueName);
-            if (value == null) {
-                continue;
-            }
-            if (request.getExpressionAttributeNames() != null) {
-                String replacedName = request.getExpressionAttributeNames().get(keyName);
-                if (replacedName != null) {
-                    keyName = replacedName;
-                }
-            }
-            builder.put(keyName, value);
-        }
-        return builder.build();
-    }
-
     private void putIntoStream(final BatchWriteItemRequest request,
                                final BatchWriteItemResult result,
                                final Instant startTime,
@@ -402,7 +398,8 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
                         .findAny()
                         .orElse(DEFAULT_GET_CONSUMED_CAPACITY_UNITS);
             } else {
-                totalConsumedCapacity = request.getRequestItems().get(table).size() * DEFAULT_PUT_CONSUMED_CAPACITY_UNITS;
+                totalConsumedCapacity = request.getRequestItems().get(table).size()
+                        * DEFAULT_PUT_CONSUMED_CAPACITY_UNITS;
             }
             final List<WriteRequest> writeRequests = request.getRequestItems().get(table);
             final double consumedCapacityPerItem = totalConsumedCapacity / writeRequests.size();
@@ -437,7 +434,8 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
                         .findAny()
                         .orElse(0.0);
             } else {
-                totalConsumedCapacity = request.getRequestItems().get(table).getKeys().size() * DEFAULT_GET_CONSUMED_CAPACITY_UNITS;
+                totalConsumedCapacity = request.getRequestItems().get(table).getKeys().size()
+                        * DEFAULT_GET_CONSUMED_CAPACITY_UNITS;
             }
             final KeysAndAttributes keysAndAttributes = request.getRequestItems().get(table);
             final double consumedCapacityPerItem = totalConsumedCapacity / keysAndAttributes.getKeys().size();
@@ -512,12 +510,39 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
                 }
                 serializedBlob = byteArrayOutputStream.toByteArray();
             }
+            // As the random integer is used for setting the partition key and not cryptographic operations,
+            // ThreadLocalRandom is used instead of SecureRandom to avoid performance impact.
             kinesisClient.putRecord(streamName, ByteBuffer.wrap(serializedBlob),
                     Integer.toString(ThreadLocalRandom.current().nextInt()));
         } catch (RuntimeException | IOException ex) {
             log.error("Failed to put result into Kinesis stream", ex);
         }
     }
+
+    private Map<String, AttributeValue> parseKeyConditionExpression(final QueryRequest request) {
+        if (request.getKeyConditionExpression() == null) {
+            return ImmutableMap.of();
+        }
+        final Matcher matcher = KEY_EXPRESSION_PATTERN.matcher(request.getKeyConditionExpression());
+        final ImmutableMap.Builder<String, AttributeValue> builder = ImmutableMap.builder();
+        while (matcher.find()) {
+            String keyName = matcher.group("Key");
+            final String valueName = matcher.group("Value");
+            final AttributeValue value = request.getExpressionAttributeValues().get(valueName);
+            if (value == null) {
+                continue;
+            }
+            if (request.getExpressionAttributeNames() != null) {
+                String replacedName = request.getExpressionAttributeNames().get(keyName);
+                if (replacedName != null) {
+                    keyName = replacedName;
+                }
+            }
+            builder.put(keyName, value);
+        }
+        return builder.build();
+    }
+
 
     private String getAttributeString(final AttributeValue attributeValue) {
         if (attributeValue.getS() != null) {
