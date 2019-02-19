@@ -16,6 +16,8 @@
 package com.amazonaws.services.dynamodb.diagnostics;
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDBAsync;
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDBAsyncClientBuilder;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
 import com.amazonaws.services.dynamodbv2.document.DynamoDB;
 import com.amazonaws.services.dynamodbv2.document.Table;
@@ -44,6 +46,7 @@ public class DynamoDBKeyDiagnosticsClientBuilder {
     public static final int DEFAULT_NUMBER_OF_STREAM_PUTTER_THREADS = 10;
 
     private AmazonDynamoDB underlyingClient;
+    private AmazonDynamoDBAsync underlyingClientAsync;
     private AmazonKinesis kinesisClient;
     private String streamName;
     private final Map<String, Set<String>> keysToMonitorBuilder = new HashMap<>();
@@ -63,6 +66,16 @@ public class DynamoDBKeyDiagnosticsClientBuilder {
     }
 
     /**
+     * Creates a default async client using default credential chains for the underlying clients and monitoring
+     * all existing table and index keys.
+     * @param kinesisStreamName The Kinesis stream name to use for key usage information.
+     * @return The created default async client.
+     */
+    public static DynamoDBKeyDiagnosticsClientAsync defaultAsyncClient(final String kinesisStreamName) {
+        return standard(kinesisStreamName).monitorAllPartitionKeys().buildAsync();
+    }
+
+    /**
      * Creates a standard client builder using default credential chains for the underlying clients and no monitored
      * keys (should be filled later using{@link DynamoDBKeyDiagnosticsClientBuilder#addKeysToMonitor(String, Collection)})
      * @param kinesisStreamName The Kinesis stream name to use for key usage information.
@@ -71,6 +84,7 @@ public class DynamoDBKeyDiagnosticsClientBuilder {
     public static DynamoDBKeyDiagnosticsClientBuilder standard(final String kinesisStreamName) {
         return new DynamoDBKeyDiagnosticsClientBuilder()
                 .withUnderlyingClient(AmazonDynamoDBClientBuilder.defaultClient())
+                .withUnderlyingAsyncClient(AmazonDynamoDBAsyncClientBuilder.defaultClient())
                 .withKinesisClient(AmazonKinesisClientBuilder.defaultClient())
                 .withKinesisStreamName(kinesisStreamName)
                 .withFixedStreamPutterThreadPool(DEFAULT_NUMBER_OF_STREAM_PUTTER_THREADS);
@@ -81,14 +95,25 @@ public class DynamoDBKeyDiagnosticsClientBuilder {
      * @return The created client.
      */
     public DynamoDBKeyDiagnosticsClient build() {
-        return new DynamoDBKeyDiagnosticsClient(
-                underlyingClient,
-                kinesisClient,
-                streamName,
-                keysToMonitorBuilder.entrySet().stream()
-                    .collect(ImmutableMap.toImmutableMap(e -> e.getKey(), e -> ImmutableSet.copyOf(e.getValue()))),
-                streamPutterService,
-                useDefaultConsumedCapacity
+        return new DynamoDBKeyDiagnosticsClient(underlyingClient, createStreamReporter());
+    }
+
+    /**
+     * Builds the client.
+     * @return The created client.
+     */
+    public DynamoDBKeyDiagnosticsClientAsync buildAsync() {
+        return new DynamoDBKeyDiagnosticsClientAsync(underlyingClientAsync, createStreamReporter());
+    }
+
+    private KinesisStreamReporter createStreamReporter() {
+        return new KinesisStreamReporter(
+            kinesisClient,
+            streamName,
+            keysToMonitorBuilder.entrySet().stream()
+                .collect(ImmutableMap.toImmutableMap(e -> e.getKey(), e -> ImmutableSet.copyOf(e.getValue()))),
+            streamPutterService,
+            useDefaultConsumedCapacity
         );
     }
 
@@ -119,6 +144,16 @@ public class DynamoDBKeyDiagnosticsClientBuilder {
      */
     public DynamoDBKeyDiagnosticsClientBuilder withUnderlyingClient(final AmazonDynamoDB underlyingClient) {
         this.underlyingClient = checkNotNull(underlyingClient);
+        return this;
+    }
+
+    /**
+     * Use the given async client to perform the actual operations on DynamoDB.
+     * @param underlyingClient The underlying async client to use to talk to DynamoDB.
+     * @return This object for method chaining.
+     */
+    public DynamoDBKeyDiagnosticsClientBuilder withUnderlyingAsyncClient(final AmazonDynamoDBAsync underlyingClient) {
+        this.underlyingClientAsync = checkNotNull(underlyingClient);
         return this;
     }
 

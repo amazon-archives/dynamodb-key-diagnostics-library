@@ -15,7 +15,6 @@
 package com.amazonaws.services.dynamodb.diagnostics;
 
 import com.amazonaws.SDKGlobalConfiguration;
-import com.amazonaws.regions.Regions;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
 import com.amazonaws.services.dynamodbv2.model.AttributeValueUpdate;

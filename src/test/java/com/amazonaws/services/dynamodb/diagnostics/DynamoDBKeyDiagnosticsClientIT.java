@@ -166,7 +166,7 @@ public class DynamoDBKeyDiagnosticsClientIT {
         String logged = performOperationAndGetLogged(() -> keyDiagnosticsClient.putItem(HASH_TABLE_NAME, ImmutableMap.of(
                 HASH_KEY_NAME, new AttributeValue().withN("5")
         )));
-        assertThat(logged, containsString("'IO':" + DynamoDBKeyDiagnosticsClient.DEFAULT_PUT_CONSUMED_CAPACITY_UNITS));
+        assertThat(logged, containsString("'IO':" + KinesisStreamReporter.DEFAULT_PUT_CONSUMED_CAPACITY_UNITS));
         assertThat(logged, containsString("'Operation':'PutItem'"));
         assertThat(logged, containsString(String.format("'Table':'%s'", HASH_TABLE_NAME)));
         assertThat(logged, containsString("'KeyValues':[{'name':'id','value':'5'}]"));
@@ -178,7 +178,7 @@ public class DynamoDBKeyDiagnosticsClientIT {
         String logged = performOperationAndGetLogged(() -> keyDiagnosticsClient.getItem(HASH_TABLE_NAME, ImmutableMap.of(
                 HASH_KEY_NAME, new AttributeValue().withN("5")
         )));
-        assertThat(logged, containsString("'IO':" + DynamoDBKeyDiagnosticsClient.DEFAULT_GET_CONSUMED_CAPACITY_UNITS));
+        assertThat(logged, containsString("'IO':" + KinesisStreamReporter.DEFAULT_GET_CONSUMED_CAPACITY_UNITS));
         assertThat(logged, containsString("'Operation':'GetItem'"));
         assertThat(logged, containsString(String.format("'Table':'%s'", HASH_TABLE_NAME)));
         assertThat(logged, containsString("'KeyValues':[{'name':'id','value':'5'}]"));
@@ -191,7 +191,7 @@ public class DynamoDBKeyDiagnosticsClientIT {
                 HASH_KEY_NAME, new AttributeValue().withN("5"),
                 RANGE_KEY_NAME, new AttributeValue().withN("6")
         )));
-        assertThat(logged, containsString("'IO':" + DynamoDBKeyDiagnosticsClient.DEFAULT_GET_CONSUMED_CAPACITY_UNITS));
+        assertThat(logged, containsString("'IO':" + KinesisStreamReporter.DEFAULT_GET_CONSUMED_CAPACITY_UNITS));
         assertThat(logged, containsString("'Operation':'GetItem'"));
         assertThat(logged, containsString(String.format("'Table':'%s'", HASH_RANGE_TABLE_NAME)));
         assertThat(logged, containsString("{'name':'id','value':'5'}"));
@@ -212,7 +212,7 @@ public class DynamoDBKeyDiagnosticsClientIT {
                         "#r", "range"
                 ))
         ));
-        assertThat(logged, containsString("'IO':" + DynamoDBKeyDiagnosticsClient.DEFAULT_QUERY_CONSUMED_CAPACITY_UNITS));
+        assertThat(logged, containsString("'IO':" + KinesisStreamReporter.DEFAULT_QUERY_CONSUMED_CAPACITY_UNITS));
         assertThat(logged, containsString("'Operation':'Query'"));
         assertThat(logged, containsString(String.format("'Table':'%s'", HASH_RANGE_TABLE_NAME)));
         assertThat(logged, containsString(
@@ -234,7 +234,7 @@ public class DynamoDBKeyDiagnosticsClientIT {
                         "#r", "range"
                 ))
         ));
-        assertThat(logged, containsString("'IO':" + DynamoDBKeyDiagnosticsClient.DEFAULT_QUERY_CONSUMED_CAPACITY_UNITS));
+        assertThat(logged, containsString("'IO':" + KinesisStreamReporter.DEFAULT_QUERY_CONSUMED_CAPACITY_UNITS));
         assertThat(logged, containsString("'Operation':'Query'"));
         assertThat(logged, containsString(String.format("'Table':'%s'", HASH_RANGE_TABLE_NAME)));
         assertThat(logged, containsString("{'name':'id','value':'5'}"));
@@ -255,7 +255,7 @@ public class DynamoDBKeyDiagnosticsClientIT {
                                 .withValue(new AttributeValue().withS("y"))
                 )
         ));
-        assertThat(logged, containsString("'IO':" + DynamoDBKeyDiagnosticsClient.DEFAULT_UPDATE_CONSUMED_CAPACITY_UNITS));
+        assertThat(logged, containsString("'IO':" + KinesisStreamReporter.DEFAULT_UPDATE_CONSUMED_CAPACITY_UNITS));
         assertThat(logged, containsString("'Operation':'UpdateItem'"));
         assertThat(logged, containsString(String.format("'Table':'%s'", HASH_RANGE_TABLE_NAME)));
         assertThat(logged, containsString("{'name':'id','value':'5'}"));
@@ -268,7 +268,7 @@ public class DynamoDBKeyDiagnosticsClientIT {
         String logged = performOperationAndGetLogged(() -> keyDiagnosticsClient.deleteItem(HASH_TABLE_NAME, ImmutableMap.of(
                 HASH_KEY_NAME, new AttributeValue().withN("50")
         )));
-        assertThat(logged, containsString("'IO':" + DynamoDBKeyDiagnosticsClient.DEFAULT_DELETE_CONSUMED_CAPACITY_UNITS));
+        assertThat(logged, containsString("'IO':" + KinesisStreamReporter.DEFAULT_DELETE_CONSUMED_CAPACITY_UNITS));
         assertThat(logged, containsString("'Operation':'DeleteItem'"));
         assertThat(logged, containsString(String.format("'Table':'%s'", HASH_TABLE_NAME)));
         assertThat(logged, containsString("'KeyValues':[{'name':'id','value':'50'}]"));
@@ -293,19 +293,19 @@ public class DynamoDBKeyDiagnosticsClientIT {
                         )))
                 )
         )), 3).stream().sorted().collect(Collectors.toList());
-        assertThat(logged.get(0), containsString("'IO':" + DynamoDBKeyDiagnosticsClient.DEFAULT_PUT_CONSUMED_CAPACITY_UNITS));
+        assertThat(logged.get(0), containsString("'IO':" + KinesisStreamReporter.DEFAULT_PUT_CONSUMED_CAPACITY_UNITS));
         assertThat(logged.get(0), containsString("'Operation':'BatchWrite.Delete'"));
         assertThat(logged.get(0), containsString(String.format("'Table':'%s'", HASH_RANGE_TABLE_NAME)));
         assertThat(logged.get(0), containsString("{'name':'id','value':'30'}"));
         assertThat(logged.get(0), containsString("{'name':'range','value':'40'}"));
 
-        assertThat(logged.get(1), containsString("'IO':" + DynamoDBKeyDiagnosticsClient.DEFAULT_PUT_CONSUMED_CAPACITY_UNITS));
+        assertThat(logged.get(1), containsString("'IO':" + KinesisStreamReporter.DEFAULT_PUT_CONSUMED_CAPACITY_UNITS));
         assertThat(logged.get(1), containsString("'Operation':'BatchWrite.Delete'"));
         assertThat(logged.get(1), containsString(String.format("'Table':'%s'", HASH_TABLE_NAME)));
         assertThat(logged.get(1), containsString(
                 "'KeyValues':[{'name':'id','value':'20'}]"));
 
-        assertThat(logged.get(2), containsString("'IO':" + DynamoDBKeyDiagnosticsClient.DEFAULT_PUT_CONSUMED_CAPACITY_UNITS));
+        assertThat(logged.get(2), containsString("'IO':" + KinesisStreamReporter.DEFAULT_PUT_CONSUMED_CAPACITY_UNITS));
         assertThat(logged.get(2), containsString("'Operation':'BatchWrite.Put'"));
         assertThat(logged.get(2), containsString(String.format("'Table':'%s'", HASH_TABLE_NAME)));
         assertThat(logged.get(2), containsString(
@@ -327,19 +327,19 @@ public class DynamoDBKeyDiagnosticsClientIT {
                         )
                 )
         )), 3).stream().sorted().collect(Collectors.toList());
-        assertThat(logged.get(0), containsString("'IO':" + DynamoDBKeyDiagnosticsClient.DEFAULT_GET_CONSUMED_CAPACITY_UNITS));
+        assertThat(logged.get(0), containsString("'IO':" + KinesisStreamReporter.DEFAULT_GET_CONSUMED_CAPACITY_UNITS));
         assertThat(logged.get(0), containsString("'Operation':'BatchGet'"));
         assertThat(logged.get(0), containsString(String.format("'Table':'%s'", HASH_RANGE_TABLE_NAME)));
         assertThat(logged.get(0), containsString("{'name':'id','value':'30'}"));
         assertThat(logged.get(0), containsString("{'name':'range','value':'40'}"));
 
-        assertThat(logged.get(1), containsString("'IO':" + DynamoDBKeyDiagnosticsClient.DEFAULT_GET_CONSUMED_CAPACITY_UNITS));
+        assertThat(logged.get(1), containsString("'IO':" + KinesisStreamReporter.DEFAULT_GET_CONSUMED_CAPACITY_UNITS));
         assertThat(logged.get(1), containsString("'Operation':'BatchGet'"));
         assertThat(logged.get(1), containsString(String.format("'Table':'%s'", HASH_TABLE_NAME)));
         assertThat(logged.get(1), containsString(
                 "'KeyValues':[{'name':'id','value':'10'}]"));
 
-        assertThat(logged.get(2), containsString("'IO':" + DynamoDBKeyDiagnosticsClient.DEFAULT_GET_CONSUMED_CAPACITY_UNITS));
+        assertThat(logged.get(2), containsString("'IO':" + KinesisStreamReporter.DEFAULT_GET_CONSUMED_CAPACITY_UNITS));
         assertThat(logged.get(2), containsString("'Operation':'BatchGet'"));
         assertThat(logged.get(2), containsString(String.format("'Table':'%s'", HASH_TABLE_NAME)));
         assertThat(logged.get(2), containsString(
@@ -354,7 +354,7 @@ public class DynamoDBKeyDiagnosticsClientIT {
                         .withTableNameOverride(new DynamoDBMapperConfig.TableNameOverride(HASH_TABLE_NAME))
                         .build());
         String logged = performOperationAndGetLogged(() -> mapper.save(new TestMapperClass(99)));
-        assertThat(logged, containsString("'IO':" + DynamoDBKeyDiagnosticsClient.DEFAULT_PUT_CONSUMED_CAPACITY_UNITS));
+        assertThat(logged, containsString("'IO':" + KinesisStreamReporter.DEFAULT_PUT_CONSUMED_CAPACITY_UNITS));
         assertThat(logged, containsString("'Operation':'UpdateItem'"));
         assertThat(logged, containsString(String.format("'Table':'%s'", HASH_TABLE_NAME)));
         assertThat(logged, containsString("'KeyValues':[{'name':'id','value':'99'}]"));

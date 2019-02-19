@@ -23,7 +23,6 @@ import com.amazonaws.services.dynamodbv2.model.BatchGetItemRequest;
 import com.amazonaws.services.dynamodbv2.model.BatchGetItemResult;
 import com.amazonaws.services.dynamodbv2.model.BatchWriteItemRequest;
 import com.amazonaws.services.dynamodbv2.model.BatchWriteItemResult;
-import com.amazonaws.services.dynamodbv2.model.ConsumedCapacity;
 import com.amazonaws.services.dynamodbv2.model.DeleteItemRequest;
 import com.amazonaws.services.dynamodbv2.model.DeleteItemResult;
 import com.amazonaws.services.dynamodbv2.model.GetItemRequest;
@@ -37,32 +36,12 @@ import com.amazonaws.services.dynamodbv2.model.ReturnConsumedCapacity;
 import com.amazonaws.services.dynamodbv2.model.UpdateItemRequest;
 import com.amazonaws.services.dynamodbv2.model.UpdateItemResult;
 import com.amazonaws.services.dynamodbv2.model.WriteRequest;
-import com.amazonaws.services.kinesis.AmazonKinesis;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import lombok.experimental.Delegate;
-import lombok.extern.slf4j.Slf4j;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.google.gson.Gson;
-import com.google.gson.stream.JsonWriter;
-
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.OutputStreamWriter;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -74,39 +53,17 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * @author Mostafa Elhemali
  * @author Ryan Chan
  */
-@Slf4j
 @SuppressFBWarnings(value = "RI_REDUNDANT_INTERFACES")
 public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
         implements AmazonDynamoDB, AutoCloseable {
-    private static final Pattern KEY_EXPRESSION_PATTERN = Pattern.compile(
-            "(?:^| )(?<Key>[^= ]+) *= *(?<Value>:[^ ]+)(?:$| )"
-    );
-    private static final int TASK_EXECUTION_TIMEOUT_SECONDS = 60;
-
-    /**
-     * Default consumed capacity units for different DynamoDB operations.
-     * These defaults are used when the return object from the DynamoDB client does not contain
-     * the consumed capacity units.
-    */
-    static final double DEFAULT_DELETE_CONSUMED_CAPACITY_UNITS = 1.0;
-    static final double DEFAULT_PUT_CONSUMED_CAPACITY_UNITS = 1.0;
-    static final double DEFAULT_UPDATE_CONSUMED_CAPACITY_UNITS = 1.0;
-    static final double DEFAULT_GET_CONSUMED_CAPACITY_UNITS = 0.5;
-    static final double DEFAULT_QUERY_CONSUMED_CAPACITY_UNITS = 0.5;
 
     @Delegate(types = AmazonDynamoDB.class, excludes = Implemented.class)
     private final AmazonDynamoDB underlyingClient;
-    private final AmazonKinesis kinesisClient;
-    private final String streamName;
-    private final ImmutableMap<String, ImmutableSet<String>> tablesAndAttributesToMonitor;
-    private final Gson gson = new Gson();
-    private final ExecutorService streamPutterService;
-    private final boolean useDefaultConsumedCapacity;
+    private final KinesisStreamReporter streamReporter;
 
     @Override
     public void close() throws InterruptedException {
-        streamPutterService.shutdown();
-        streamPutterService.awaitTermination(TASK_EXECUTION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        streamReporter.close();
     }
 
     /**
@@ -160,29 +117,15 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
 
     /**
      * Constructs the wrapper client.
+     *
      * @param underlyingClient The regular client we're wrapping.
-     * @param kinesisClient The Kinesis client we'll use to publish the key usage information.
-     * @param streamName The Kinesis stream we'll publish to.
-     * @param tablesAndAttributesToMonitor The collection of tables and attributes within those tables that we should
-     *                                     monitor for key usage information.
-     * @param streamPutterService The executor service to asynchronously log into Kinesis.
-     * @param useDefaultConsumedCapacity If true, the DynamoDBKeyDiagnosticsClient will assume each DynamoDB operation
-     *                                   consumed a default capacity, even when the response object does not include it
-     *                                   (eg. integration testing with DynamoDB Local)
+     * @param streamReporter   The kinesis stream reporter that will publish the key usage information.
      */
     DynamoDBKeyDiagnosticsClient(
             final AmazonDynamoDB underlyingClient,
-            final AmazonKinesis kinesisClient,
-            final String streamName,
-            final ImmutableMap<String, ImmutableSet<String>> tablesAndAttributesToMonitor,
-            final ExecutorService streamPutterService,
-            final boolean useDefaultConsumedCapacity) {
+            final KinesisStreamReporter streamReporter) {
         this.underlyingClient = checkNotNull(underlyingClient);
-        this.kinesisClient = checkNotNull(kinesisClient);
-        this.streamName = checkNotNull(streamName);
-        this.tablesAndAttributesToMonitor = checkNotNull(tablesAndAttributesToMonitor);
-        this.streamPutterService = streamPutterService;
-        this.useDefaultConsumedCapacity = useDefaultConsumedCapacity;
+        this.streamReporter = checkNotNull(streamReporter);
     }
 
     @SuppressFBWarnings(value = "RV_RETURN_VALUE_IGNORED_BAD_PRACTICE")
@@ -191,7 +134,7 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
         final DeleteItemRequest instrumented = request.withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
         final DeleteItemResult result = underlyingClient.deleteItem(instrumented);
         final Instant endTime = Instant.now();
-        streamPutterService.submit(() -> putIntoStream(request, result, startTime, endTime));
+        streamReporter.putIntoStream(request, result, startTime, endTime);
         return result;
     }
 
@@ -211,7 +154,7 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
         final PutItemRequest instrumented = request.withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
         final PutItemResult result = underlyingClient.putItem(instrumented);
         final Instant endTime = Instant.now();
-        streamPutterService.submit(() -> putIntoStream(request, result, startTime, endTime));
+        streamReporter.putIntoStream(request, result, startTime, endTime);
         return result;
     }
 
@@ -231,7 +174,7 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
         final GetItemRequest instrumented = request.withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
         final GetItemResult result = underlyingClient.getItem(instrumented);
         final Instant endTime = Instant.now();
-        streamPutterService.submit(() -> putIntoStream(request, result, startTime, endTime));
+        streamReporter.putIntoStream(request, result, startTime, endTime);
         return result;
     }
 
@@ -251,7 +194,7 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
         final QueryRequest instrumented = request.withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
         final QueryResult result = underlyingClient.query(instrumented);
         final Instant endTime = Instant.now();
-        streamPutterService.submit(() -> putIntoStream(request, result, startTime, endTime));
+        streamReporter.putIntoStream(request, result, startTime, endTime);
         return result;
     }
 
@@ -261,7 +204,7 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
         final BatchWriteItemRequest instrumented = request.withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
         final BatchWriteItemResult result = underlyingClient.batchWriteItem(instrumented);
         final Instant endTime = Instant.now();
-        streamPutterService.submit(() -> putIntoStream(request, result, startTime, endTime));
+        streamReporter.putIntoStream(request, result, startTime, endTime);
         return result;
     }
 
@@ -275,7 +218,7 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
         final BatchGetItemRequest instrumented = request.withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
         final BatchGetItemResult result = underlyingClient.batchGetItem(instrumented);
         final Instant endTime = Instant.now();
-        streamPutterService.submit(() -> putIntoStream(request, result, startTime, endTime));
+        streamReporter.putIntoStream(request, result, startTime, endTime);
         return result;
     }
 
@@ -294,7 +237,7 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
         final UpdateItemRequest instrumented = request.withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
         final UpdateItemResult result = underlyingClient.updateItem(instrumented);
         final Instant endTime = Instant.now();
-        streamPutterService.submit(() -> putIntoStream(request, result, startTime, endTime));
+        streamReporter.putIntoStream(request, result, startTime, endTime);
         return result;
     }
 
@@ -318,259 +261,5 @@ public class DynamoDBKeyDiagnosticsClient extends AmazonDynamoDBClient
                 .withAttributeUpdates(attributeUpdates)
                 .withReturnValues(returnValues)
         );
-    }
-
-    private void putIntoStream(final DeleteItemRequest request,
-                               final DeleteItemResult result,
-                               final Instant startTime,
-                               final Instant endTime) {
-        final Double consumedCapacityUnits = getConsumedCapacityUnits(result.getConsumedCapacity(),
-                DEFAULT_DELETE_CONSUMED_CAPACITY_UNITS);
-        putIntoStream(
-                request.getTableName(),
-                "DeleteItem",
-                consumedCapacityUnits.doubleValue(),
-                request.getKey()::get,
-                startTime,
-                endTime
-        );
-    }
-
-    private void putIntoStream(final PutItemRequest request,
-                               final PutItemResult result,
-                               final Instant startTime,
-                               final Instant endTime) {
-        final Double consumedCapacityUnits = getConsumedCapacityUnits(result.getConsumedCapacity(),
-                DEFAULT_PUT_CONSUMED_CAPACITY_UNITS);
-        putIntoStream(
-                request.getTableName(),
-                "PutItem",
-                consumedCapacityUnits.doubleValue(),
-                request.getItem()::get,
-                startTime,
-                endTime
-        );
-    }
-
-    private void putIntoStream(final GetItemRequest request,
-                               final GetItemResult result,
-                               final Instant startTime,
-                               final Instant endTime) {
-        final Double consumedCapacityUnits = getConsumedCapacityUnits(result.getConsumedCapacity(),
-                DEFAULT_GET_CONSUMED_CAPACITY_UNITS);
-        putIntoStream(
-                request.getTableName(),
-                "GetItem",
-                consumedCapacityUnits.doubleValue(),
-                request.getKey()::get,
-                startTime,
-                endTime
-        );
-    }
-
-    private void putIntoStream(final QueryRequest request,
-                               final QueryResult result,
-                               final Instant startTime,
-                               final Instant endTime) {
-        final Double consumedCapacityUnits = getConsumedCapacityUnits(result.getConsumedCapacity(),
-                DEFAULT_QUERY_CONSUMED_CAPACITY_UNITS);
-        Map<String, AttributeValue> parsedExpressions = parseKeyConditionExpression(request);
-        putIntoStream(
-                request.getTableName(),
-                "Query",
-                consumedCapacityUnits.doubleValue(),
-                parsedExpressions::get,
-                startTime,
-                endTime
-        );
-    }
-
-    private void putIntoStream(final BatchWriteItemRequest request,
-                               final BatchWriteItemResult result,
-                               final Instant startTime,
-                               final Instant endTime) {
-        for (String table: request.getRequestItems().keySet()) {
-            double totalConsumedCapacity;
-            if (result.getConsumedCapacity() != null) {
-                totalConsumedCapacity = result.getConsumedCapacity().stream()
-                        .filter(c -> c.getTableName().equals(table))
-                        .mapToDouble(c -> c.getCapacityUnits())
-                        .findAny()
-                        .orElse(DEFAULT_GET_CONSUMED_CAPACITY_UNITS);
-            } else {
-                totalConsumedCapacity = request.getRequestItems().get(table).size()
-                        * DEFAULT_PUT_CONSUMED_CAPACITY_UNITS;
-            }
-            final List<WriteRequest> writeRequests = request.getRequestItems().get(table);
-            final double consumedCapacityPerItem = totalConsumedCapacity / writeRequests.size();
-            for (WriteRequest requestItem: writeRequests) {
-                putIntoStream(
-                        table,
-                        "BatchWrite." + (requestItem.getPutRequest() != null
-                                ? "Put"
-                                : "Delete"
-                        ),
-                        consumedCapacityPerItem,
-                        requestItem.getPutRequest() != null
-                                ? requestItem.getPutRequest().getItem()::get
-                                : requestItem.getDeleteRequest().getKey()::get,
-                        startTime,
-                        endTime
-                );
-            }
-        }
-    }
-
-    private void putIntoStream(final BatchGetItemRequest request,
-                               final BatchGetItemResult result,
-                               final Instant startTime,
-                               final Instant endTime) {
-        for (String table: request.getRequestItems().keySet()) {
-            double totalConsumedCapacity;
-            if (result.getConsumedCapacity() != null) {
-                totalConsumedCapacity = result.getConsumedCapacity().stream()
-                        .filter(c -> c.getTableName().equals(table))
-                        .mapToDouble(c -> c.getCapacityUnits())
-                        .findAny()
-                        .orElse(0.0);
-            } else {
-                totalConsumedCapacity = request.getRequestItems().get(table).getKeys().size()
-                        * DEFAULT_GET_CONSUMED_CAPACITY_UNITS;
-            }
-            final KeysAndAttributes keysAndAttributes = request.getRequestItems().get(table);
-            final double consumedCapacityPerItem = totalConsumedCapacity / keysAndAttributes.getKeys().size();
-            for (Map<String, AttributeValue> keys: keysAndAttributes.getKeys()) {
-                putIntoStream(
-                        table,
-                        "BatchGet",
-                        consumedCapacityPerItem,
-                        keys::get,
-                        startTime,
-                        endTime
-                );
-            }
-        }
-    }
-
-    private void putIntoStream(final UpdateItemRequest request,
-                               final UpdateItemResult result,
-                               final Instant startTime,
-                               final Instant endTime) {
-        final Double consumedCapacityUnits = getConsumedCapacityUnits(result.getConsumedCapacity(),
-                DEFAULT_UPDATE_CONSUMED_CAPACITY_UNITS);
-        putIntoStream(
-                request.getTableName(),
-                "UpdateItem",
-                consumedCapacityUnits.doubleValue(),
-                request.getKey()::get,
-                startTime,
-                endTime
-        );
-    }
-
-    private void putIntoStream(final String tableName,
-                               final String operation,
-                               final double io,
-                               final Function<String, AttributeValue> attributeValueExtractor,
-                               final Instant startTime,
-                               final Instant endTime) {
-        final ImmutableSet<String> attributes = tablesAndAttributesToMonitor.get(tableName);
-        if (attributes == null) {
-            return;
-        }
-        try {
-            byte[] serializedBlob;
-            try (ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream()) {
-                try (JsonWriter jsonWriter = gson.newJsonWriter(new OutputStreamWriter(byteArrayOutputStream,
-                        StandardCharsets.UTF_8))) {
-                    jsonWriter.beginObject();
-                    jsonWriter.name("start_time").value(startTime.toEpochMilli());
-                    jsonWriter.name("end_time").value(endTime.toEpochMilli());
-                    jsonWriter.name("IO").value(io);
-                    jsonWriter.name("Operation").value(operation);
-                    jsonWriter.name("Table").value(tableName);
-                    jsonWriter.name("KeyValues");
-                    jsonWriter.beginArray();
-                    for (String attribute : attributes) {
-                        final AttributeValue attributeValue = attributeValueExtractor.apply(attribute);
-                        if (attributeValue == null) {
-                            continue;
-                        }
-                        jsonWriter.beginObject();
-                        jsonWriter.name("name").value(attribute);
-                        jsonWriter.name("value").value(getAttributeString(attributeValue));
-                        jsonWriter.endObject();
-                    }
-                    jsonWriter.endArray();
-                    jsonWriter.endObject();
-                }
-                if (log.isDebugEnabled()) {
-                    log.debug("Inserting into stream: {}",
-                            new String(byteArrayOutputStream.toByteArray(), StandardCharsets.UTF_8));
-                }
-                serializedBlob = byteArrayOutputStream.toByteArray();
-            }
-            // As the random integer is used for setting the partition key and not cryptographic operations,
-            // ThreadLocalRandom is used instead of SecureRandom to avoid performance impact.
-            kinesisClient.putRecord(streamName, ByteBuffer.wrap(serializedBlob),
-                    Integer.toString(ThreadLocalRandom.current().nextInt()));
-        } catch (RuntimeException | IOException ex) {
-            log.error("Failed to put result into Kinesis stream", ex);
-        }
-    }
-
-    private Map<String, AttributeValue> parseKeyConditionExpression(final QueryRequest request) {
-        if (request.getKeyConditionExpression() == null) {
-            return ImmutableMap.of();
-        }
-        final Matcher matcher = KEY_EXPRESSION_PATTERN.matcher(request.getKeyConditionExpression());
-        final ImmutableMap.Builder<String, AttributeValue> builder = ImmutableMap.builder();
-        while (matcher.find()) {
-            String keyName = matcher.group("Key");
-            final String valueName = matcher.group("Value");
-            final AttributeValue value = request.getExpressionAttributeValues().get(valueName);
-            if (value == null) {
-                continue;
-            }
-            if (request.getExpressionAttributeNames() != null) {
-                String replacedName = request.getExpressionAttributeNames().get(keyName);
-                if (replacedName != null) {
-                    keyName = replacedName;
-                }
-            }
-            builder.put(keyName, value);
-        }
-        return builder.build();
-    }
-
-
-    private String getAttributeString(final AttributeValue attributeValue) {
-        if (attributeValue.getS() != null) {
-            return attributeValue.getS();
-        } else if (attributeValue.getN() != null) {
-            return attributeValue.getN();
-        } else if (attributeValue.getB() != null) {
-            return Base64.getEncoder().encodeToString(attributeValue.getB().array());
-        } else {
-            return null;
-        }
-    }
-
-    /**
-     * This helper method returns the capacity units from the provided ConsumedCapacity object.
-     * A default is returned if useDefaultConsumedCapacity is set to true.
-     * @param consumedCapacity ConsumedCapacity object
-     * @param defaultConsumedCapacityUnits The default consumed capacity returned if capacity units is not provided
-     *                                     in the consumedCapacity object and useDefaultConsumedCapacity is true.
-     * @return A Double object for the consumed capacity units.
-     */
-    private Double getConsumedCapacityUnits(final ConsumedCapacity consumedCapacity,
-                                            final double defaultConsumedCapacityUnits) {
-        if (useDefaultConsumedCapacity) {
-            return Optional.ofNullable(consumedCapacity)
-                    .orElse(new ConsumedCapacity().withCapacityUnits(defaultConsumedCapacityUnits))
-                    .getCapacityUnits();
-        }
-        return consumedCapacity.getCapacityUnits();
     }
 }

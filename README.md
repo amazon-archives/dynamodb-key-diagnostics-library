@@ -25,12 +25,12 @@ key usage and have heatmaps to help diagnose your application.
 │   │   └── java
 │   │       └── com.amazonaws.services.dynamodb.diagnostics     <-- Main package for Key Diagnostics Client
 │   │           ├── DynamoDBKeyDiagnosticsClient.java           <-- Contains inject methods for handler entrypoints
-│   │           └── DynamoDBKeyDiagnosticsClientBuilder.java    <-- Provides dependencies like the DynamoDB client for injection
+│   │           ├── DynamoDBKeyDiagnosticsClientAsync.java      <-- Similar to DynamoDBKeyDiagnosticsClient, but supports async DynamoDB APIs
+│   │           ├── DynamoDBKeyDiagnosticsClientBuilder.java    <-- Provides dependencies like the DynamoDB client for injection
+│   │           └── KinesisStreamReporter                       <-- Reporter class that asynchronously sends key usage information to a Kinesis stream
 │   └── test                                                    <-- Unit and integration tests
 │       └── java
-│           └── com.amazonaws.services.dynamodb.diagnostics
-│               ├── DynamoDBKeyDiagnosticsClientIT.java         <-- Integration tests which makes requests to DynamoDB Local and writes to Kinesis Streams
-│               └── DynamoDBKeyDiagnosticsClientTest.java       <-- Unit tests for the Key Diagnostics client
+│           └── com.amazonaws.services.dynamodb.diagnostics     <-- Contains integration tests and unit tests.
 │
 └── samples                                                     <-- Contains the Movies demo application that uses the Key Diagnostics client
      └── movies
