@@ -35,6 +35,7 @@ import com.amazonaws.services.dynamodbv2.model.UpdateItemRequest;
 import com.amazonaws.services.dynamodbv2.model.UpdateItemResult;
 import com.amazonaws.services.dynamodbv2.model.WriteRequest;
 import com.amazonaws.services.kinesis.AmazonKinesis;
+
 import lombok.extern.slf4j.Slf4j;
 
 import com.google.common.collect.ImmutableMap;
@@ -128,7 +129,7 @@ public class KinesisStreamReporter implements AutoCloseable {
                        final Instant endTime) {
         final Double consumedCapacityUnits = getConsumedCapacityUnits(result.getConsumedCapacity(),
             DEFAULT_DELETE_CONSUMED_CAPACITY_UNITS);
-        putIntoStream(
+        putIntoStreamAsync(
             request.getTableName(),
             "DeleteItem",
             consumedCapacityUnits.doubleValue(),
@@ -144,7 +145,7 @@ public class KinesisStreamReporter implements AutoCloseable {
                        final Instant endTime) {
         final Double consumedCapacityUnits = getConsumedCapacityUnits(result.getConsumedCapacity(),
             DEFAULT_PUT_CONSUMED_CAPACITY_UNITS);
-        putIntoStream(
+        putIntoStreamAsync(
             request.getTableName(),
             "PutItem",
             consumedCapacityUnits.doubleValue(),
@@ -160,7 +161,7 @@ public class KinesisStreamReporter implements AutoCloseable {
                        final Instant endTime) {
         final Double consumedCapacityUnits = getConsumedCapacityUnits(result.getConsumedCapacity(),
             DEFAULT_GET_CONSUMED_CAPACITY_UNITS);
-        putIntoStream(
+        putIntoStreamAsync(
             request.getTableName(),
             "GetItem",
             consumedCapacityUnits.doubleValue(),
@@ -177,7 +178,7 @@ public class KinesisStreamReporter implements AutoCloseable {
         final Double consumedCapacityUnits = getConsumedCapacityUnits(result.getConsumedCapacity(),
             DEFAULT_QUERY_CONSUMED_CAPACITY_UNITS);
         Map<String, AttributeValue> parsedExpressions = parseKeyConditionExpression(request);
-        putIntoStream(
+        putIntoStreamAsync(
             request.getTableName(),
             "Query",
             consumedCapacityUnits.doubleValue(),
@@ -206,7 +207,7 @@ public class KinesisStreamReporter implements AutoCloseable {
             final List<WriteRequest> writeRequests = request.getRequestItems().get(table);
             final double consumedCapacityPerItem = totalConsumedCapacity / writeRequests.size();
             for (WriteRequest requestItem : writeRequests) {
-                putIntoStream(
+                putIntoStreamAsync(
                     table,
                     "BatchWrite." + (requestItem.getPutRequest() != null
                         ? "Put"
@@ -242,7 +243,7 @@ public class KinesisStreamReporter implements AutoCloseable {
             final KeysAndAttributes keysAndAttributes = request.getRequestItems().get(table);
             final double consumedCapacityPerItem = totalConsumedCapacity / keysAndAttributes.getKeys().size();
             for (Map<String, AttributeValue> keys : keysAndAttributes.getKeys()) {
-                putIntoStream(
+                putIntoStreamAsync(
                     table,
                     "BatchGet",
                     consumedCapacityPerItem,
@@ -260,7 +261,7 @@ public class KinesisStreamReporter implements AutoCloseable {
                        final Instant endTime) {
         final Double consumedCapacityUnits = getConsumedCapacityUnits(result.getConsumedCapacity(),
             DEFAULT_UPDATE_CONSUMED_CAPACITY_UNITS);
-        putIntoStream(
+        putIntoStreamAsync(
             request.getTableName(),
             "UpdateItem",
             consumedCapacityUnits.doubleValue(),
@@ -268,6 +269,16 @@ public class KinesisStreamReporter implements AutoCloseable {
             startTime,
             endTime
         );
+    }
+
+    private void putIntoStreamAsync(final String tableName,
+                                    final String operation,
+                                    final double io,
+                                    final Function<String, AttributeValue> attributeValueExtractor,
+                                    final Instant startTime,
+                                    final Instant endTime) {
+        streamPutterService
+            .execute(() -> putIntoStream(tableName, operation, io, attributeValueExtractor, startTime, endTime));
     }
 
     private void putIntoStream(final String tableName,

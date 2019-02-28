@@ -4,8 +4,6 @@ as your application reads/writes data from/to DynamoDB. You can then use [Kinesi
 to monitor and alarm if any single key gets too hot, and to feed into [S3](https://aws.amazon.com/s3/)/[Athena](https://aws.amazon.com/athena/)/[QuickSight](https://aws.amazon.com/quicksight/) to report on your detailed
 key usage and have heatmaps to help diagnose your application.
 
-[![Build Status](https://travis-ci.org/awslabs/dynamodb-key-diagnostics-library.svg?branch=master)](https://travis-ci.org/awslabs/dynamodb-key-diagnostics-library)
-
 ```
 .
 ├── README.md                                                   <-- This instructions file

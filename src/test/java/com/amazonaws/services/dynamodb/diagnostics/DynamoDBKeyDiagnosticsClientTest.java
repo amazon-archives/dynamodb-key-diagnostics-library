@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -147,12 +148,14 @@ public class DynamoDBKeyDiagnosticsClientTest {
             ));
         }
         final List<String> kinesisInputs = getLastKinesisInputs(2);
-        assertThat(kinesisInputs.get(0), containsString(
+        assertThat(kinesisInputs, containsInAnyOrder(
+            containsString(
                 "'IO':2.5,'Operation':'BatchGet','Table':'table'," +
-                        "'KeyValues':[{'name':'key','value':'k1'}]"));
-        assertThat(kinesisInputs.get(1), containsString(
+                    "'KeyValues':[{'name':'key','value':'k1'}]"),
+            containsString(
                 "'IO':2.5,'Operation':'BatchGet','Table':'table'," +
-                        "'KeyValues':[{'name':'key','value':'k2'}]"));
+                    "'KeyValues':[{'name':'key','value':'k2'}]")
+        ));
     }
 
     @Test
@@ -176,15 +179,17 @@ public class DynamoDBKeyDiagnosticsClientTest {
             ));
         }
         final List<String> kinesisInputs = getLastKinesisInputs(3);
-        assertThat(kinesisInputs.get(0), containsString(
+        assertThat(kinesisInputs, containsInAnyOrder(
+            containsString(
                 "'IO':2.0,'Operation':'BatchWrite.Put','Table':'table'," +
-                        "'KeyValues':[{'name':'key','value':'k1'}]"));
-        assertThat(kinesisInputs.get(1), containsString(
+                    "'KeyValues':[{'name':'key','value':'k1'}]"),
+            containsString(
                 "'IO':2.0,'Operation':'BatchWrite.Put','Table':'table'," +
-                        "'KeyValues':[{'name':'key','value':'k2'}]"));
-        assertThat(kinesisInputs.get(2), containsString(
+                    "'KeyValues':[{'name':'key','value':'k2'}]"),
+            containsString(
                 "'IO':2.0,'Operation':'BatchWrite.Delete','Table':'table'," +
-                        "'KeyValues':[{'name':'key','value':'k3'}]"));
+                    "'KeyValues':[{'name':'key','value':'k3'}]")
+        ));
     }
 
     @Test
